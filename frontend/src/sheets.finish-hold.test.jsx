@@ -69,6 +69,17 @@ describe('finishing while a timed hold runs', () => {
     expect(held).not.toHaveBeenCalled()
   })
 
+  it('tells video sync to end while the session still names it', () => {
+    install([{ w: 40, r: 5, done: true }])
+    const seen = []
+    useUI.setState({ videoSync: { end: vi.fn(id => seen.push([id, S().active?.id ?? null])) } })
+
+    act(() => finishWorkout())
+
+    expect(seen).toEqual([['fin', 'fin']], 'end runs before active becomes null')
+    expect(S().active).toBeNull()
+  })
+
   it('stops it too when the hold is the set left unchecked and Finish early is confirmed', () => {
     install([{ w: 40, r: 5, done: true }, { w: 40, r: 5 }])
     const held = holdInto(1)

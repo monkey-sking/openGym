@@ -10,8 +10,9 @@ public enum HealthReadCore {
     public static let bpmRange: ClosedRange<Double> = 25...250
     /// A workout of a few hours at one sample a second is well under this.
     public static let maxSamples = 50_000
-    /// The bundle ids that are openGym: the iPhone app, its Apple Watch app and widgets.
-    public static let ownPrefix = "ch.duartesantos.opengym"
+    /// The bundle ids that are openGym: this build's iPhone app and its Apple Watch app and
+    /// widgets, plus the upstream ids, whose records in the hub are openGym's too.
+    public static let ownPrefixes = ["com.7fei.opengym", "ch.duartesantos.opengym"]
 
     public struct HeartSample: Equatable {
         public let ms: Double
@@ -42,7 +43,7 @@ public enum HealthReadCore {
     /// Whether openGym wrote this one itself (by its sync identifier or its source).
     public static func isOwn(source: String, syncId: String?) -> Bool {
         if let id = syncId, id.hasPrefix("opengym-") { return true }
-        return source == ownPrefix || source.hasPrefix(ownPrefix + ".")
+        return ownPrefixes.contains { source == $0 || source.hasPrefix($0 + ".") }
     }
 
     /// Weigh-ins as JS takes them, openGym's own left out.

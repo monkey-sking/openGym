@@ -35,6 +35,11 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
     }
 
     var workout: ActiveWorkout? { state.workout }
+    var isPaused: Bool { workout?.isPaused == true }
+    /// The training time frozen at the pause, and what was left of a rest or hold then.
+    var pausedElapsed: TimeInterval? { SessionCore.pausedElapsed(workout) }
+    var pausedRestLeft: TimeInterval? { pausedRestRemaining }
+    var pausedHoldLeft: TimeInterval? { pausedHoldRemaining }
     var ready: Ready? { state.ready }
     var entryIndex: Int { state.entryIndex }
     var unit: String { workout?.unit ?? state.unit }
@@ -102,6 +107,11 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
     private static let heardKey = "heardFromPhone"
     @Published private(set) var restEndsAt: Date?
     @Published private(set) var restStartedAt: Date?
+    /// What was running when the phone or this watch paused the workout, restored on resume.
+    private var pausedRestRemaining: TimeInterval?
+    private var pausedRestElapsed: TimeInterval?
+    private var pausedHoldRemaining: TimeInterval?
+    private var pausedHoldElapsed: TimeInterval?
     /// "All done?": the workout has had no set logged for 20 minutes (WatchCore's Idle).
     @Published var askDone = false
     /// A set picked by hand in an exercise (entry index → set index); otherwise the first not done.
@@ -147,7 +157,7 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
         } else if let data = UserDefaults.standard.data(forKey: SessionStore.stateKey),
                   let saved = try? JSONDecoder().decode(SessionState.self, from: data) {
             // Relaunched (mid-workout or not): the session as it was, then the latest from the phone.
-            state = saved
+            state = SessionCore.migrateLegacyKeys(saved)
             loadTargets()
             // The Apple Health session of a workout that was running when the app was killed is
             // recovered (WatchAppDelegate.handleActiveWorkoutRecovery); a new one starts only if
@@ -188,7 +198,10 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
     private func noteActivity() {
         guard !isDemo, let w = workout else { return }
         activityAt = Date()
-        if health.paused { health.resume() } else { health.start(workoutId: w.id, type: w.healthType) }
+        if w.isPaused { health.pause(); armIdleCheck(); return }
+        if !launchHealthStartSuppressed {
+            if health.paused { health.resume() } else { health.start(workoutId: w.id, type: w.healthType) }
+        }
         armIdleCheck()
     }
 
@@ -237,14 +250,20 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
 
     /// When the running workout started: the phone's start, else when this watch first had it.
     var workoutStart: Date? {
-        if let ms = workout?.start, ms > 0 { return Date(timeIntervalSince1970: ms / 1000) }
+        // The paused stretches are not training time: the header's elapsed timer starts later by
+        // exactly what was stood still.
+        if let ms = workout?.start, ms > 0 {
+            return Date(timeIntervalSince1970: ms / 1000 + (workout?.pausedMs ?? 0) / 1000)
+        }
         return workout == nil ? nil : workoutSeenAt
     }
 
     /// Events wait on the watch for a phone out of reach: "Saved on the watch, syncs later".
     var offline: Bool { queued > 0 && !reachable }
 
-    func isSkipped(_ exId: String, _ si: Int) -> Bool { SessionCore.isSkipped(state, exId, si) }
+    func isSkipped(_ exId: String, entry ei: Int, _ si: Int) -> Bool {
+        SessionCore.isSkipped(state, exId, entry: ei, si)
+    }
 
     /// The side of a per-side set that is up ("L" or "R"), or nil.
     var sideUp: String? {
@@ -300,25 +319,72 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
         return .idle
     }
 
+    /// HealthKit opens the app before WatchConnectivity necessarily has the phone's first snapshot.
+    /// The launch path waits briefly for it, then starts exactly one workout session whether it
+    /// arrived or not. A newer launch replaces an older wait instead of starting beside it.
+    private var launchGeneration = 0
+    private var launchWait: DispatchWorkItem?
+    private var launchOpened: HKWorkoutActivityType?
+    private var launchHealthStartSuppressed = false
+
     /// HealthKit opened the app for a workout started on the iPhone: the workout session starts
-    /// now (Apple expects one right away), for the workout the phone sent or is about to send.
+    /// after the phone's snapshot arrives, or once the short launch wait runs out.
     func openedForWorkout(_ opened: HKWorkoutActivityType? = nil) {
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [self] in
+            self.launchWait?.cancel()
+            self.launchWait = nil
+            self.launchGeneration &+= 1
+            let generation = self.launchGeneration
+            self.launchOpened = opened
+            self.launchHealthStartSuppressed = true
             self.log("opened by the phone for a workout")
-            if WCSession.isSupported(), let json = WCSession.default.receivedApplicationContext["snapshot"] as? String {
-                self.apply(json: json)
+
+            // A restored workout already has everything HealthKit needs: do not hold it for a
+            // snapshot. Otherwise the application context below, or its arrival, ends the wait.
+            if !LaunchSnapshotWait.shouldWait(hasSnapshot: false, hasWorkout: self.state.workout != nil, elapsed: 0) {
+                self.finishLaunch(generation: generation, snapshotSeen: false)
+                return
             }
-            self.health.start(workoutId: self.state.workout?.id, type: self.state.workout?.healthType, opened: opened)
-            // Nothing came after all (the phone's workout was discarded at once): no session left running.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 60) {
-                if self.state.workout == nil { self.health.end(save: false) }
+            if WCSession.isSupported() {
+                let context = WCSession.default.receivedApplicationContext
+                if let json = context["snapshot"] as? String {
+                    self.apply(json: json, at: SnapshotWatermark.timestamp(from: context["at"]))
+                }
             }
+
+            // The context may be missing now and arrive on activation, or be unreadable. The
+            // deadline guarantees the launch proceeds even when no usable snapshot comes.
+            let timeout = DispatchWorkItem { [weak self] in
+                self?.finishLaunch(generation: generation, snapshotSeen: false)
+            }
+            self.launchWait = timeout
+            DispatchQueue.main.asyncAfter(deadline: .now() + LaunchSnapshotWait.timeout, execute: timeout)
+        }
+    }
+
+    /// The one launch exit: cancel the wait, stop suppressing HealthKit starts and start the
+    /// session once. A valid snapshot arriving during the wait calls this as soon as it is applied.
+    private func finishLaunch(generation: Int, snapshotSeen: Bool) {
+        guard generation == launchGeneration, launchHealthStartSuppressed else { return }
+        launchWait?.cancel()
+        launchWait = nil
+        launchHealthStartSuppressed = false
+        let opened = launchOpened
+        launchOpened = nil
+        health.start(workoutId: state.workout?.id, type: state.workout?.healthType, opened: opened)
+        log(snapshotSeen ? "launch snapshot arrived: workout session starting" : "launch snapshot wait ended: workout session starting")
+        // Nothing came after all (the phone's workout was discarded at once): no session left
+        // running. Count from this final launch only; a newer launch replaces this cleanup.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
+            guard let self = self, self.launchGeneration == generation,
+                  !self.launchHealthStartSuppressed, self.state.workout == nil else { return }
+            self.health.end(save: false)
         }
     }
 
     /* ---------- snapshots from the phone ---------- */
 
-    func apply(json: String) {
+    func apply(json: String, at: Double? = nil) {
         guard let data = json.data(using: .utf8),
               let snap = try? JSONDecoder().decode(Snapshot.self, from: data) else {
             // Shown on the hidden debug screen: a snapshot this build cannot read is otherwise silent.
@@ -326,12 +392,19 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
             return
         }
         DispatchQueue.main.async {
+            let launchWaiting = self.launchHealthStartSuppressed
+            let generation = self.launchGeneration
+            let before = self.state
+            let applied = SessionCore.applySnapshotResult(before, snap, at: at)
+            guard applied.accepted else {
+                self.log("ignored stale snapshot at \(at.map { String($0) } ?? "none"): last applied \(before.lastSnapshotAt.map { String($0) } ?? "none")")
+                return
+            }
             if !self.heardFromPhone {
                 self.heardFromPhone = true
                 if !self.isDemo { UserDefaults.standard.set(true, forKey: SessionStore.heardKey) }
             }
-            let before = self.state
-            let next = SessionCore.applySnapshot(before, snap)
+            let next = applied.state
             self.state = next
             if let ended = before.workout, next.workout == nil {
                 // Ended on the phone: the session here ends too. Finished there, it is saved to Apple
@@ -352,31 +425,55 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
                 self.skipRest()
             } else if next.workout != nil && next.workout?.id != before.workout?.id {
                 // A workout this watch picks up (the app opened mid-workout, or the phone started one).
+                if let abandoned = applied.abandonedWorkoutID {
+                    // The phone won this race. Drop the watch's unconfirmed session before the
+                    // phone's workout starts, so Apple Health never keeps both.
+                    self.health.end(save: false)
+                    self.stopHold()
+                    self.skipRest()
+                    self.dropClips()
+                    self.log("abandoned watch workout \(abandoned): the phone workout won")
+                }
                 self.setStartedAt = Date()
                 self.workoutSeenAt = Date()
                 self.picked = [:]
                 self.summary = nil
-                self.health.start(workoutId: next.workout?.id, type: next.workout?.healthType)
+                if !launchWaiting {
+                    self.health.start(workoutId: next.workout?.id, type: next.workout?.healthType)
+                }
             }
             if next.workout != nil && next.workout != before.workout { self.noteActivity() }
-            // Sets ticked on the phone: their heart rate from this watch's readings (Discord fuckdv).
+            let wasPaused = before.workout?.isPaused == true
+            let nowPaused = next.workout?.isPaused == true
+            if next.workout == nil {
+                self.clearPausedTimers()
+            } else if nowPaused && !wasPaused {
+                let pausedAt = next.workout?.pausedAt.map { Date(timeIntervalSince1970: $0 / 1000) }
+                self.suspendForPause(at: pausedAt ?? Date())
+            } else if !nowPaused && wasPaused {
+                self.restoreAfterPause(at: Date())
+            }
+            // Sets ticked on the phone: their heart rate from this watch's readings.
             for tick in SessionCore.phoneTicks(before.workout, next.workout) {
                 self.phoneTicked(tick, wid: next.workout?.id ?? "", resting: snap.active?.rest != nil)
             }
-            if let rest = snap.active?.rest, next.workout?.id == snap.active?.id {
+            if !nowPaused, let rest = snap.active?.rest, next.workout?.id == snap.active?.id {
                 let end = Date(timeIntervalSince1970: rest.endsAt / 1000)
                 if end != self.restEndsAt { self.startRest(until: end, notify: true) }
             }
             self.health.syncSetting(next.settings.health)
             self.removeDeletedFromHealth(snap.healthGone)
             self.loadTargets()
+            if launchWaiting {
+                self.finishLaunch(generation: generation, snapshotSeen: true)
+            }
         }
     }
 
     /// The set up next, as the effort remembers it (exercise, set, side).
     private var setKey: String? {
         guard let e = entry, let si = setIndex else { return nil }
-        return SessionCore.key(e.id, si, e.sets[si].sideUp)
+        return SessionCore.key(e.id, entry: entryIndex, si, e.sets[si].sideUp)
     }
 
     /// The effort for the set up next, from its editor; nil clears it.
@@ -407,7 +504,7 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
     /// The set up next, done: the numbers on the screen (a hold's seconds as it lasted, one side of
     /// a per-side set, nothing for cardio), then where SessionCore.next says, with a rest when due.
     func completeSet(sec heldFor: Double? = nil) {
-        guard let w = workout, let e = entry, let si = setIndex else { return }
+        guard let w = workout, !w.isPaused, let e = entry, let si = setIndex else { return }
         // A double tap on Done (a sweaty finger) is one set, not this one and the next.
         if heldFor == nil, let last = lastTick, Date().timeIntervalSince(last) < 0.7 { return }
         // In a superset the page flips to the partner: a slower second tap would log its set.
@@ -476,7 +573,7 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
 
     /// A set passed over (a long press on Done): not done, the next one comes up.
     func skipSet() {
-        guard touchAllowed, let si = setIndex else { return }
+        guard touchAllowed, workout?.isPaused != true, let si = setIndex else { return }
         ackRestOver()
         let ei = entryIndex
         state = SessionCore.skip(state, entry: ei, set: si)
@@ -494,7 +591,7 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
 
     /// The hold starts: a countdown from the seconds on the screen; at zero it is done by itself.
     func startHold() {
-        guard touchAllowed, entry?.isTimed == true, setIndex != nil, seconds > 0 else { return }
+        guard touchAllowed, workout?.isPaused != true, entry?.isTimed == true, setIndex != nil, seconds > 0 else { return }
         ackRestOver()
         skipRest()
         noteActivity()
@@ -523,6 +620,81 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
         holdTimer = nil
         holdEndsAt = nil
         holdStartedAt = nil
+    }
+
+    /* ---------- pause and resume (phone, watch, or a video) ---------- */
+
+    /// The button on the set page: stop the watch's clock here, tell the phone, and keep a rest or
+    /// hold exactly where it was. The phone's own pause arrives as a snapshot and does the same.
+    func pause(at now: Date = Date()) {
+        guard workout != nil, !isPaused else { return }
+        suspendForPause(at: now)
+        let (next, event) = SessionCore.pause(state, at: now.timeIntervalSince1970 * 1000, id: UUID().uuidString)
+        if let event = event { send(event: event) }
+        state = next
+    }
+
+    /// Resume here, or after the phone resumed: the rest or hold continues with the time it had
+    /// left, and the workout's elapsed timer no longer counts the pause.
+    func resume(at now: Date = Date()) {
+        guard isPaused else { return }
+        let (next, event) = SessionCore.resume(state, at: now.timeIntervalSince1970 * 1000, id: UUID().uuidString)
+        if let event = event { send(event: event) }
+        state = next
+        restoreAfterPause(at: now)
+    }
+
+    private func suspendForPause(at now: Date) {
+        pausedRestRemaining = nil
+        pausedRestElapsed = nil
+        pausedHoldRemaining = nil
+        pausedHoldElapsed = nil
+        if let end = restEndsAt, end > now {
+            pausedRestRemaining = end.timeIntervalSince(now)
+            pausedRestElapsed = restStartedAt.map { max(0, now.timeIntervalSince($0)) }
+            restTimer?.invalidate()
+            restTimer = nil
+            restEndsAt = nil
+            restStartedAt = nil
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [SessionStore.restNotificationId])
+        }
+        if let end = holdEndsAt, let start = holdStartedAt, end > now {
+            pausedHoldRemaining = end.timeIntervalSince(now)
+            pausedHoldElapsed = max(0, now.timeIntervalSince(start))
+            holdTimer?.invalidate()
+            holdTimer = nil
+            holdEndsAt = nil
+            holdStartedAt = nil
+        }
+        health.pause()
+    }
+
+    private func restoreAfterPause(at now: Date) {
+        if let remaining = pausedRestRemaining {
+            let elapsed = pausedRestElapsed ?? 0
+            startRest(until: now.addingTimeInterval(remaining), notify: true)
+            restStartedAt = now.addingTimeInterval(-elapsed)
+        }
+        if let remaining = pausedHoldRemaining {
+            let elapsed = pausedHoldElapsed ?? 0
+            holdStartedAt = now.addingTimeInterval(-elapsed)
+            holdEndsAt = now.addingTimeInterval(remaining)
+            holdTimer = Timer.scheduledTimer(withTimeInterval: remaining, repeats: false) { [weak self] _ in
+                DispatchQueue.main.async { self?.endHold(early: false) }
+            }
+        }
+        pausedRestRemaining = nil
+        pausedRestElapsed = nil
+        pausedHoldRemaining = nil
+        pausedHoldElapsed = nil
+        health.resume()
+    }
+
+    private func clearPausedTimers() {
+        pausedRestRemaining = nil
+        pausedRestElapsed = nil
+        pausedHoldRemaining = nil
+        pausedHoldElapsed = nil
     }
 
     /* ---------- the summary ---------- */
@@ -723,6 +895,7 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
         health.end(save: true, at: end) { [weak self] totals in self?.addTotals(totals) }
         stopHold()
         skipRest()
+        clearPausedTimers()
         dropClips()
         send(event: ev)
         state = next
@@ -737,6 +910,7 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
         health.end(save: false)
         stopHold()
         skipRest()
+        clearPausedTimers()
         dropClips()
         send(event: ev)
         state = next
@@ -930,7 +1104,10 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
 
     func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
         // The phone's latest snapshot: also what a watch app opened mid-workout picks the session up from.
-        if let json = session.receivedApplicationContext["snapshot"] as? String { apply(json: json) }
+        let context = session.receivedApplicationContext
+        if let json = context["snapshot"] as? String {
+            apply(json: json, at: SnapshotWatermark.timestamp(from: context["at"]))
+        }
         DispatchQueue.main.async { self.flushOutbox() }
         sendStatus()
         updateLink()
@@ -938,17 +1115,21 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
 
     /// What the phone's Settings → Apple Watch shows about this watch.
     func sendStatus() {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        let version = WatchVersion.short
         send(event: ["id": UUID().uuidString, "type": "watchStatus", "health": health.status, "version": version,
                      "at": Date().timeIntervalSince1970 * 1000])
     }
 
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
-        if let json = applicationContext["snapshot"] as? String { apply(json: json) }
+        if let json = applicationContext["snapshot"] as? String {
+            apply(json: json, at: SnapshotWatermark.timestamp(from: applicationContext["at"]))
+        }
     }
 
     func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
-        if let json = message["snapshot"] as? String { apply(json: json) }
+        if let json = message["snapshot"] as? String {
+            apply(json: json, at: SnapshotWatermark.timestamp(from: message["at"]))
+        }
     }
 
     /* ---------- the demo the CI screenshots show (text only; a synthetic clip at most) ---------- */

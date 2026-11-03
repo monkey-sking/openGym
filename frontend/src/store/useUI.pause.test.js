@@ -116,3 +116,55 @@ describe('pausing the rest timer', () => {
     expect(done).toHaveBeenCalledExactlyOnceWith(30, { chimed: true })
   })
 })
+
+describe('pausing the timed hold', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    beep.mockClear()
+    chime.mockClear()
+  })
+  afterEach(() => {
+    useUI.getState().stopWork()
+    vi.useRealTimers()
+  })
+
+  it('freezes the seconds left and carries on from there', () => {
+    const done = vi.fn()
+    useUI.getState().startWork(45, 'Plank', done)
+    vi.advanceTimersByTime(5000)
+    expect(useUI.getState().pauseWork()).toBe(true)
+    expect(useUI.getState().work).toMatchObject({ left: 40, total: 45, paused: true })
+
+    vi.advanceTimersByTime(10 * 60000)   // the pause
+    expect(useUI.getState().work).toMatchObject({ left: 40, paused: true })
+    expect(done).not.toHaveBeenCalled()
+    expect(chime).not.toHaveBeenCalled()
+
+    expect(useUI.getState().resumeWork()).toBe(true)
+    expect(useUI.getState().work.paused).toBeUndefined()
+    vi.advanceTimersByTime(39000)
+    expect(useUI.getState().work.left).toBe(1)
+    vi.advanceTimersByTime(1000)
+    expect(done).toHaveBeenCalledExactlyOnceWith(45, { chimed: true })
+  })
+
+  it('logs the time actually held when the set is finished after a pause', () => {
+    const done = vi.fn()
+    useUI.getState().startWork(45, 'Plank', done)
+    vi.advanceTimersByTime(5000)
+    useUI.getState().pauseWork()
+    vi.advanceTimersByTime(60000)
+    useUI.getState().finishWorkEarly()
+    // Five seconds held, not the sixty-five the wall clock would say.
+    expect(done).toHaveBeenCalledExactlyOnceWith(5)
+  })
+
+  it('has nothing to pause or resume outside a running hold', () => {
+    expect(useUI.getState().pauseWork()).toBe(false)
+    expect(useUI.getState().resumeWork()).toBe(false)
+    useUI.getState().startWork(30, 'Plank', vi.fn())
+    expect(useUI.getState().resumeWork()).toBe(false)
+    useUI.getState().pauseWork()
+    expect(useUI.getState().pauseWork()).toBe(false)
+  })
+})

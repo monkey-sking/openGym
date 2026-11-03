@@ -45,8 +45,18 @@ struct ActiveWorkout: Codable, Equatable {
     var entries: [Entry]
     /// When it started (ms since 1970), for the summary's duration.
     var start: Double?
+    /// The clock stopped at this moment (ms since 1970); nil while the workout runs.
+    var pausedAt: Double? = nil
+    /// Pauses already ended (ms), kept out of the workout's training time.
+    var pausedMs: Double? = nil
+    /// A revision that moves on every pause and resume, so a stale snapshot cannot undo a tap here.
+    var pauseRev: Int? = nil
+    /// Who paused it ("app", "video" or "watch"), for the screen that says why.
+    var pausedBy: String? = nil
     /// Apple Health's workout type for it (#799); none: strength training, as before.
     var healthType: String?
+
+    var isPaused: Bool { (pausedAt ?? 0) > 0 }
 }
 
 struct RestInfo: Codable, Equatable {

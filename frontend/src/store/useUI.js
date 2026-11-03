@@ -104,7 +104,7 @@ const runWork = (set, get) => {
   stopWorkTicking()
   workTick = () => {
     const wk = get().work
-    if (!wk) return
+    if (!wk || wk.paused) return
     const left = Math.max(wk.overtime ? -MAX_WORK_OVERTIME_SEC : 0, Math.round((wk.endsAt - Date.now()) / 1000))
     const seenLive = !document.hidden && pageHiddenAt === null
     if (!document.hidden) pageHiddenAt = null
@@ -229,6 +229,11 @@ export const useUI = create((set, get) => ({
                        // paused: held at `left`; `endsAt` means nothing until resumeRest sets it again
   work: null,          // work countdown DURING a timed set (issue #16) — { left, total, endsAt, label, overtime? }
   timerFlashId: 0,     // changing the id retriggers the theme-blink visual alert
+  // The computer's half of the session (lib/video-sync.js): whether a browser extension is
+  // holding the stream, so the workout can say the video is listening. Nothing else about the
+  // link lives here — the commands travel through the server, not the UI store.
+  videoSync: { online: false, offset: 0, server: '' },
+  setVideoSync(patch) { set(s => ({ videoSync: { ...s.videoSync, ...patch } })) },
 
   flashTimer() {
     if (!useStore.getState().S.timerFlash) return
@@ -422,8 +427,10 @@ export const useUI = create((set, get) => ({
   finishWorkEarly() {
     const wk = get().work
     if (!wk) return
-    const startedAt = wk.endsAt - wk.total * 1000
-    const elapsed = Math.max(1, Math.min(wk.total + (wk.overtime ? MAX_WORK_OVERTIME_SEC : 0), Math.round((Date.now() - startedAt) / 1000)))
+    // `left` is what the clock shows, whether it ran down in one stretch or was held in the
+    // middle by a pause. Reading the wall clock back from `endsAt` would count the pause as time
+    // held (a resume moves `endsAt` out by exactly the pause).
+    const elapsed = Math.max(1, Math.min(wk.total + (wk.overtime ? MAX_WORK_OVERTIME_SEC : 0), Math.round(wk.total - wk.left)))
     const done = workDone || ownerDone(wk)
     vibrate(30)
     get().stopWork()
@@ -446,6 +453,30 @@ export const useUI = create((set, get) => ({
     // would write a one-second plank over a real plan. (finishWorkEarly's Math.max(1, …) is right
     // for what it is: you pressed Done, so you held it, however briefly.)
     if (done && elapsed >= 2) done(elapsed, { abandoned: true })
+  },
+  // Holding the timed set where it is. The session pause freezes it too (a workout paused by
+  // the athlete or by the video): a hold that kept counting would run out behind a paused
+  // session and advance the chapter under the video, which is exactly the drift this is for.
+  // As with a rest, paused time is not held time and no tick may run while it stands still.
+  pauseWork() {
+    const wk = get().work
+    if (!wk || wk.paused) return false
+    stopWorkTicking()
+    const left = Math.max(wk.overtime ? -MAX_WORK_OVERTIME_SEC : 0, Math.round((wk.endsAt - Date.now()) / 1000))
+    set({ work: { ...wk, left, paused: true } })
+    return true
+  },
+  // Carrying on from where the pause held it: the end moves out by the pause, exactly like
+  // resumeRest, so the next tick cannot jump the chapter ahead.
+  resumeWork() {
+    const wk = get().work
+    if (!wk?.paused) return false
+    const { paused, ...rest } = wk
+    pageHiddenAt = document.hidden ? Date.now() : null
+    const endsAt = Date.now() + wk.left * 1000
+    set({ work: { ...rest, endsAt } })
+    runWork(set, get)
+    return true
   },
   // Abandon without logging anything.
   stopWork() {
@@ -518,7 +549,7 @@ const saveWork = wk => {
   if (!ls) return
   try {
     if (!wk?.owner) ls.removeItem(WORK_KEY)
-    else ls.setItem(WORK_KEY, JSON.stringify({ endsAt: wk.endsAt, total: wk.total, label: wk.label || '', overtime: !!wk.overtime, alerted: !!wk.alerted, owner: wk.owner }))
+    else ls.setItem(WORK_KEY, JSON.stringify({ endsAt: wk.endsAt, total: wk.total, left: wk.left, paused: !!wk.paused, label: wk.label || '', overtime: !!wk.overtime, alerted: !!wk.alerted, owner: wk.owner }))
   } catch { /* the hold just does not outlive a reload */ }
 }
 export function restoreWork(now = Date.now()) {
@@ -530,6 +561,20 @@ export function restoreWork(now = Date.now()) {
   const drop = () => { try { ls.removeItem(WORK_KEY) } catch { /* nothing to drop */ } return false }
   if (!(total > 0) || !(saved.endsAt > 0) || !ownerSet(saved.owner)) return drop()
   const wk = { left: total, total, endsAt: saved.endsAt, label: saved.label || '', overtime: !!saved.overtime, ...(saved.alerted ? { alerted: true } : {}), owner: saved.owner }
+  // A hold paused by the session pause comes back paused only while that session still is:
+  // otherwise the workout is running and the hold must run with it again.
+  if (saved.paused) {
+    const sessionPaused = !!useStore.getState().S?.active?.pausedAt
+    const left = Math.round(Number(saved.left))
+    if (sessionPaused && left > 0) {
+      useUI.setState({ work: { ...wk, left, paused: true } })
+      return true
+    }
+    const endsAt = now + Math.max(1, left || total) * 1000
+    useUI.setState({ work: { ...wk, left: Math.max(1, left || total), endsAt } })
+    runWork(useUI.setState, useUI.getState)
+    return true
+  }
   const left = Math.round((saved.endsAt - now) / 1000)
   // Over while the app was away: held to the end (overtime past the target is not known, and
   // the target is what was planned), with no chime for an end nobody was there for.
@@ -543,7 +588,7 @@ export function restoreWork(now = Date.now()) {
   runWork(useUI.setState, useUI.getState)
   return true
 }
-useUI.subscribe((s, prev) => { if (s.work !== prev.work && (!s.work || !prev.work || s.work.owner !== prev.work.owner || s.work.endsAt !== prev.work.endsAt || s.work.alerted !== prev.work.alerted)) saveWork(s.work) })
+useUI.subscribe((s, prev) => { if (s.work !== prev.work && (!s.work || !prev.work || s.work.owner !== prev.work.owner || s.work.endsAt !== prev.work.endsAt || s.work.alerted !== prev.work.alerted || s.work.paused !== prev.work.paused)) saveWork(s.work) })
 restoreWork()
 
 // Buttons on the rest notification (pause, ±15s, skip) change the countdown in the

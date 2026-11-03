@@ -48,6 +48,14 @@ describe('the snapshot', () => {
     const S = state({ workouts: [{ id: 'old', d: '2026-10-01', entries: [{ id: '0025', target: { sets: 2, reps: 8 }, sets: [{ w: 55, r: 8, done: true }, { w: 55, r: 7, done: true }] }] }] })
     expect(buildSnapshot(S).active.entries[0].last).toMatch(/55/)
   })
+
+  it('carries a pause with the revision that keeps a stale snapshot from undoing it', () => {
+    const S = state()
+    S.active = { ...S.active, pausedAt: 1760000000000, pausedMs: 45_000, pauseRev: 2, pausedBy: 'video' }
+    expect(buildSnapshot(S).active).toMatchObject({
+      pausedAt: 1760000000000, pausedMs: 45_000, pauseRev: 2, pausedBy: 'video',
+    })
+  })
 })
 
 describe('the events from the watch', () => {
@@ -77,6 +85,45 @@ describe('the events from the watch', () => {
 
   it('wait in the queue while the workout screen is not there', () => {
     expect(applyEvents([ev('a')], () => ({ S: state() }))).toEqual([])
+  })
+
+  it('pause and resume through the workout screen, only for the live workout', () => {
+    const S = state()
+    const pause = vi.fn(), resume = vi.fn()
+    bindWatchActions({ setDone: vi.fn(), pause, resume })
+    const events = [
+      { id: 'p1', type: 'pause', wid: 'w-1', at: 1 },
+      { id: 'p2', type: 'pause', wid: 'w-other', at: 2 },
+      { id: 'r1', type: 'resume', wid: 'w-1', at: 3 },
+    ]
+    expect(applyEvents(events, () => ({ S }))).toEqual(['p1', 'p2', 'r1'])
+    expect(pause).toHaveBeenCalledTimes(1)
+    expect(resume).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops a watch pause that the phone has already moved past', () => {
+    const S = state()
+    S.active = { ...S.active, pauseRev: 6 }
+    const pause = vi.fn(), resume = vi.fn()
+    bindWatchActions({ setDone: vi.fn(), pause, resume })
+    expect(applyEvents([
+      { id: 'old-pause', type: 'pause', wid: 'w-1', at: 1, pauseRev: 5 },
+    ], () => ({ S }))).toEqual(['old-pause'])
+    expect(pause).not.toHaveBeenCalled()
+  })
+
+  it('applies an equal or newer watch revision so the next resume is not swallowed', () => {
+    const S = state()
+    S.active = { ...S.active, pauseRev: 6 }
+    const pause = vi.fn(), resume = vi.fn()
+    bindWatchActions({ setDone: vi.fn(), pause, resume })
+    expect(applyEvents([
+      { id: 'same-resume', type: 'resume', wid: 'w-1', at: 2, pauseRev: 6 },
+      { id: 'new-pause', type: 'pause', wid: 'w-1', at: 3, pauseRev: 7 },
+      { id: 'older-resume', type: 'resume', wid: 'w-1', at: 4, pauseRev: 5 },
+    ], () => ({ S }))).toEqual(['same-resume', 'new-pause', 'older-resume'])
+    expect(resume).toHaveBeenCalledTimes(1)
+    expect(pause).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -190,12 +237,33 @@ describe('starting and finishing on the watch', () => {
     expect(finish).toHaveBeenCalledTimes(1)
   })
 
-  it('a start while another workout runs on the phone keeps that one', () => {
+  it('a start while another workout runs on the phone is a conflict: nothing applied or acked until the watch is told to drop it', () => {
     const S = { active: { id: 'phone-1', entries: [] } }
-    const start = vi.fn()
-    bindWatchAppActions({ start })
-    expect(applyEvents([{ id: 's2', type: 'start', routineIds: ['r'], wid: 'watch-2', at: 1 }], () => ({ S }))).toEqual(['s2'])
+    const start = vi.fn(), resendSnapshot = vi.fn(), setDone = vi.fn()
+    bindWatchAppActions({ start, resendSnapshot })
+    bindWatchActions({ setDone, finish: vi.fn() })
+    // First drain: the conflict start and every later event of the same watch workout stay queued,
+    // nothing is applied to the phone's workout, and one resend of the phone's snapshot is asked for.
+    expect(applyEvents([
+      { id: 's2', type: 'start', routineIds: ['r'], wid: 'watch-2', at: 1 },
+      { id: 'd2', type: 'setDone', wid: 'watch-2', exId: '0025', entryIdx: 0, setIdx: 0, w: 60, r: 8, at: 2 },
+    ], () => ({ S }))).toEqual([])
     expect(start).not.toHaveBeenCalled()
+    expect(resendSnapshot).toHaveBeenCalledTimes(1)
+    expect(setDone).not.toHaveBeenCalled()
+    expect(JSON.parse(localStorage.getItem('gym_watch_conflict'))).toMatchObject({ wid: 'watch-2', phoneWid: 'phone-1' })
+  })
+
+  it('repeated starts for the workout already running here are acknowledged without another resend', () => {
+    const S = { active: { id: 'phone-1', entries: [] } }
+    const start = vi.fn(), resendSnapshot = vi.fn()
+    bindWatchAppActions({ start, resendSnapshot })
+    expect(applyEvents([
+      { id: 's2', type: 'start', routineIds: ['r'], wid: 'phone-1', at: 1 },
+      { id: 's3', type: 'start', routineIds: ['r'], wid: 'phone-1', at: 1 },
+    ], () => ({ S }))).toEqual(['s2', 's3'])
+    expect(start).not.toHaveBeenCalled()
+    expect(resendSnapshot).not.toHaveBeenCalled()
   })
 })
 

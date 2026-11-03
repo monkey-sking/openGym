@@ -5,15 +5,15 @@
 #
 #   ruby frontend/ios/ci/add-watch-app.rb
 #
-# App Store Connect needs, before a signed build: the bundle ids ch.opengym.app.watchkitapp
-# (HealthKit, App Group group.ch.opengym.app) and ch.opengym.app.watchkitapp.widgets (App Group
-# group.ch.opengym.app), an App Store provisioning profile for each; the release script
+# App Store Connect needs, before a signed build: the bundle ids com.7fei.opengym.watchkitapp
+# (HealthKit, App Group group.com.7fei.opengym) and com.7fei.opengym.watchkitapp.widgets (App Group
+# group.com.7fei.opengym), an App Store provisioning profile for each; the release script
 # (scripts/ios/finish-ipa.sh) signs the watch app with WATCH_PROFILE and its widget extension with
 # WATCH_WIDGET_PROFILE.
 require 'xcodeproj'
 
 NAME = 'OpenGymWatch'
-BUNDLE_ID = 'ch.opengym.app.watchkitapp'
+BUNDLE_ID = 'com.7fei.opengym.watchkitapp'
 DIR = 'Watch'
 
 dir = File.expand_path('../App', __dir__)
@@ -54,7 +54,14 @@ watch.build_configurations.each do |c|
   s['INFOPLIST_FILE'] = "#{DIR}/Info.plist"
   s['GENERATE_INFOPLIST_FILE'] = 'NO'
   s['CODE_SIGN_ENTITLEMENTS'] = "#{DIR}/#{NAME}.entitlements" if File.exist?(entitlements)
-  s['CODE_SIGN_STYLE'] = 'Automatic'
+  # Manual, like the App target this fork ships with: the App Store profile for each watch bundle id
+  # is picked by name at export time (work/tf/ExportOptions.plist).
+  s['CODE_SIGN_STYLE'] = c.name == 'Release' ? 'Manual' : 'Automatic'
+  if c.name == 'Release'
+    s['CODE_SIGN_IDENTITY'] = 'Apple Distribution'
+    s['DEVELOPMENT_TEAM'] = '4Z7654KAZZ'
+    s['PROVISIONING_PROFILE_SPECIFIER'] = 'openGym Watch AppStore'
+  end
   s['SWIFT_VERSION'] = '5.0'
   s['SDKROOT'] = 'watchos'
   s['WATCHOS_DEPLOYMENT_TARGET'] = '10.0'
@@ -101,7 +108,12 @@ widget.build_configurations.each do |c|
   s['INFOPLIST_FILE'] = "#{WIDGET_DIR}/Info.plist"
   s['GENERATE_INFOPLIST_FILE'] = 'NO'
   s['CODE_SIGN_ENTITLEMENTS'] = "#{WIDGET_DIR}/#{WIDGET}.entitlements"
-  s['CODE_SIGN_STYLE'] = 'Automatic'
+  s['CODE_SIGN_STYLE'] = c.name == 'Release' ? 'Manual' : 'Automatic'
+  if c.name == 'Release'
+    s['CODE_SIGN_IDENTITY'] = 'Apple Distribution'
+    s['DEVELOPMENT_TEAM'] = '4Z7654KAZZ'
+    s['PROVISIONING_PROFILE_SPECIFIER'] = 'openGym Watch Widget AppStore'
+  end
   s['SWIFT_VERSION'] = '5.0'
   s['SDKROOT'] = 'watchos'
   s['WATCHOS_DEPLOYMENT_TARGET'] = '10.0'

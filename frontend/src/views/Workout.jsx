@@ -31,6 +31,8 @@ import { startFlow, exercisePicker, exConfigSheet, exerciseDetailSheet, finishWo
 import { afterScrollRestore, scrollRestorePending } from '../components/Modals.jsx'
 import { effortColor } from '../lib/effort.js'
 import Elapsed from '../components/Elapsed.jsx'
+import { isPaused } from '../lib/workout-pause.js'
+import { readVideoSyncServer, writeVideoSyncServer, discoverVideoSyncRelay } from '../lib/video-sync.js'
 import Icon from '../components/Icon.jsx'
 import { Button, Check, NumberField } from '../components/ui.jsx'
 import { defaultIncrement, weightIncrement, stepWeight } from '../lib/progression.js'
@@ -40,7 +42,8 @@ import { routineChangesFromEntry, updateRoutineFromEntry } from '../lib/routines
 import { sessionNoProg, setSessionNoProg, setEntryNoProg, joinSessionNoProg } from '../lib/session-noprog.js'
 import { glyphOf } from '../lib/glyphs.js'
 import { markAllSetsDone, sessionHistory } from '../lib/backfill.js'
-import { bindWatchActions, markDiscarded } from '../lib/watch-sync.js'
+import { bindWatchActions, markDiscarded, watchStatus } from '../lib/watch-sync.js'
+import { healthStatus, loadHealth, onHealthChange } from '../lib/health-sync.js'
 import { bestSetFor } from '../lib/exercise-history.js'
 import { bindLiveActions } from '../lib/live-activity.js'
 import { isWarmupRow, isFailureSet, toggleFailure, isDropSet, isRestPauseSet, dropsOf, clustersOf, addDrop, addCluster, removeDropAt, removeClusterAt, setDropAt, setClusterAt, nextDropWeight, nextBurstReps, isSideSet, makeSideSet, setSideField, toggleSide, addSideDrop, removeSideDropAt, setSideDropAt, addSideCluster, removeSideClusterAt, setSideClusterAt, WEIGHT_ORIGIN_MANUAL } from '../lib/workout-model.js'
@@ -57,6 +60,151 @@ import { entryDbLoad, bellsIn, ownedWeightsFor, stepOwned } from '../lib/dumbbel
 const HOLD_KEY_GRACE_MS = 1500
 
 /* ---------- start chooser (no active workout) ---------- */
+// The last moment the Apple Health switch can still be turned on for a session: with it off the
+// Apple Watch measures nothing at all (Watch/WorkoutManager.make guards on it), so a workout done
+// that way ends with no heart rate and no workout in the Health app (#544). Checked on the screen
+// a workout is started from — before it, where it can still be fixed — rather than after.
+// Snoozed for a week, not silenced: the state is worth saying again once it is a week old.
+const PREFLIGHT_SNOOZE_KEY = 'gym_preflight_snooze'
+const PREFLIGHT_SNOOZE_MS = 7 * 24 * 3600e3
+
+function PreflightCard() {
+  const nav = useNavigate()
+  const [st, setSt] = useState(null)   // { available, on, paired, installed }; null until the phone answers
+  const [snoozed, setSnoozed] = useState(() => {
+    try { return Number(localStorage.getItem(PREFLIGHT_SNOOZE_KEY)) || 0 } catch { return 0 }
+  })
+  useEffect(() => {
+    let gone = false
+    Promise.all([healthStatus(), loadHealth(), watchStatus()])
+      .then(([s, h, w]) => {
+        if (gone) return
+        setSt({ available: s.status === 'available' && s.platform === 'ios', on: !!h?.on, paired: !!w?.paired, installed: !!w?.installed })
+      })
+      .catch(() => {})
+    const off = onHealthChange(h => { if (!gone) setSt(s => (s ? { ...s, on: !!h?.on } : s)) })
+    return () => { gone = true; off() }
+  }, [])
+  if (!st || !st.available) return null
+  const watchMissing = st.paired && !st.installed
+  if (st.on && !watchMissing) return null
+  if (snoozed && Date.now() - snoozed < PREFLIGHT_SNOOZE_MS) return null
+  const snooze = () => {
+    const now = Date.now()
+    try { localStorage.setItem(PREFLIGHT_SNOOZE_KEY, String(now)) } catch { /* private mode: for this run */ }
+    setSnoozed(now)
+  }
+  return <div className="card" style={{ borderColor: 'var(--orange)' }}>
+    <h2 className="accent">{t('Your workouts in Apple Health')}</h2>
+    <div className="muted small" style={{ marginBottom: 12 }}>
+      {watchMissing
+        ? t('openGym is not on your Apple Watch yet. Install it in the Watch app.')
+        : t('Turn on Apple Health and the watch measures your heart rate for every set.')}
+    </div>
+    <div className="row between" style={{ marginBottom: 10 }}>
+      <span className="muted small">{t('Apple Health')} · {st.on ? t('On') : t('Off')}</span>
+      <Button icon="heart" onClick={() => nav('/settings/data', { state: { find: 'Write to Apple Health' } })}>{t('Open Apple Health')}</Button>
+    </div>
+    <Button onClick={snooze}>{t('Not now')}</Button>
+  </div>
+}
+
+
+function VideoSyncSheet({ close }) {
+  const [server, setServer] = useState(() => readVideoSyncServer())
+  const [searching, setSearching] = useState(false)
+  const [searchMsg, setSearchMsg] = useState('')
+  const offset = useUI(s => s.videoSync?.offset || 0)
+  const nudge = useUI(s => s.videoSync?.nudge)
+
+  const runDiscovery = async () => {
+    setSearching(true)
+    setSearchMsg(t('Searching…'))
+    try {
+      const found = await discoverVideoSyncRelay({ timeout: 4000 })
+      if (found) {
+        setServer(found)
+        setSearchMsg('')
+      } else {
+        setSearchMsg(t('Not found'))
+      }
+    } catch {
+      setSearchMsg(t('Not found'))
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!readVideoSyncServer()) {
+      runDiscovery()
+    }
+  }, [])
+
+  return (
+    <div>
+      <h3>{t('Video sync')}</h3>
+      <div className="muted small" style={{ marginBottom: 16 }}>
+        {t('Connect your computer Chrome browser on the same Wi-Fi network without any server account.')}
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        <div className="row between" style={{ marginBottom: 6 }}>
+          <label className="small muted">{t('Computer relay address')}</label>
+          {searching ? (
+            <span className="small muted">{t('Searching…')}</span>
+          ) : (
+            <button
+              type="button"
+              className="small text-btn"
+              style={{ padding: 0, textDecoration: 'underline' }}
+              onClick={runDiscovery}
+            >
+              {t('Search')}
+            </button>
+          )}
+        </div>
+        <input
+          type="text"
+          value={server}
+          onChange={e => setServer(e.target.value)}
+          placeholder="http://192.168.x.x:8787"
+          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)' }}
+        />
+        {searchMsg && !searching ? (
+          <div className="small muted" style={{ marginTop: 4 }}>{searchMsg}</div>
+        ) : null}
+      </div>
+      <div className="row" style={{ gap: 8, marginBottom: 20 }}>
+        <button className="primary grow" onClick={() => {
+          writeVideoSyncServer(server)
+          close()
+        }}>{t('Save')}</button>
+        {server ? (
+          <button onClick={() => {
+            writeVideoSyncServer('')
+            setServer('')
+            close()
+          }}>{t('Clear')}</button>
+        ) : null}
+      </div>
+      {typeof nudge === 'function' ? (
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+          <div className="small muted" style={{ marginBottom: 8 }}>
+            {t('Nudge video timeline')} ({offset > 0 ? '+' + offset + 's' : offset + 's'})
+          </div>
+          <div className="row" style={{ gap: 6 }}>
+            <button className="grow small" onClick={() => nudge(-5)}>-5s</button>
+            <button className="grow small" onClick={() => nudge(-1)}>-1s</button>
+            <button className="grow small" onClick={() => nudge(0)}>{t('Reset')}</button>
+            <button className="grow small" onClick={() => nudge(1)}>+1s</button>
+            <button className="grow small" onClick={() => nudge(5)}>+5s</button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function StartChooser() {
   const nav = useNavigate()
   const S = useStore(s => s.S)
@@ -68,6 +216,7 @@ function StartChooser() {
   const others = S.routines.filter(r => !idSet.has(r.id))
   return <div className="narrow">
     <div className="hdr"><div><h1>{t('Start workout')}</h1><div className="sub">{t(DAYN[new Date().getDay()])} · {todayRoutines.length ? t('today is {0}', todayName) : t('rest day, but no one’s stopping you')}</div></div></div>
+    <PreflightCard />
     {todayRoutines.length > 0 && <div className="card" style={{ borderColor: 'var(--acc)' }}>
       <h2 className="accent">{t("Today's plan")}{todayOvr ? ' · ' + t('rescheduled') : ''}</h2>
       <div className="row between" style={{ marginBottom: 12 }}>
@@ -981,6 +1130,8 @@ function ActiveWorkout() {
   const stopWork = useUI(s => s.stopWork)
   const working = useUI(s => !!s.work)
   const workKey = useUI(s => s.work?.endsAt)
+  // A browser extension is holding the video link for this account (lib/video-sync.js).
+  const videoOnline = useUI(s => !!s.videoSync?.online)
   const timerKey = useUI(s => s.timer && `${s.timer.endsAt}:${s.timer.forIdx ?? ''}`)
   const readyRestEnds = useUI(s => (s.timer?.ready ? s.timer.endsAt : undefined))
   const A = S.active
@@ -1022,6 +1173,18 @@ function ActiveWorkout() {
   const collapseOn = listMode && !!(A.collapseCompleted ?? S.collapseCompleted)
   // Cards and Focus: Prev, Next and the swipe jump over finished exercises (#523).
   const skipDone = !listMode && S.skipCompleted === true
+  // Cards and Focus only: the rest before a timed exercise also starts it (Settings → Workout,
+  // "Start the next exercise by itself"), so a session of timed blocks runs from its first play
+  // button to the end. The saved setting covers every session; a session started before it
+  // existed has no such key and keeps the old tap-to-start behaviour.
+  const autoStartNext = !listMode && !editing && !!(A.autoStartNext ?? S.autoStartNext)
+  const openTimedSet = (entries, entryIdx, from = 0) => {
+    const entry = entries?.[entryIdx]
+    const sets = Array.isArray(entry?.sets) ? entry.sets : []
+    const i = sets.findIndex((set, j) => j >= from && !set.done)
+    if (i < 0 || modeOf({ ...(entry.target || {}), id: entry.id }) !== 'time') return null
+    return { idx: entryIdx, i }
+  }
   // Cards and Focus: when the rest after a timed exercise's last set runs out, the next exercise
   // comes up on its own (#532, lib/supersetFlow.js advanceAfterTimedRest). Once per rest.
   useEffect(() => {
@@ -1031,7 +1194,16 @@ function ActiveWorkout() {
     if (!live) return
     const timed = idx => modeOf({ ...(live.entries[idx]?.target || {}), id: live.entries[idx]?.id }) === 'time'
     const to = advanceAfterTimedRest(live.entries, supersetUnits(live.entries), readyRest.forIdx, live.cur, timed)
-    if (to != null) update(s => { if (s.active && s.active.cur === live.cur) s.active.cur = to })
+    if (to != null) {
+      update(s => { if (s.active && s.active.cur === live.cur) s.active.cur = to })
+      // Hands-free chain (Settings → Workout): the screen has just moved on by itself, so start
+      // that exercise too instead of leaving the bar on Ready — a session built out of one timed
+      // set per exercise then runs from its first play button to the end. The screen is only a
+      // render behind: startWork writes the running hold the very next frame reads back, and the
+      // guards below leave a hold that is already going (the person beat us to it) alone.
+      const next = openTimedSet(live.entries, to)
+      if (autoStartNext && next && !useUI.getState().work) startTimed(next.idx, next.i)
+    }
   }, [readyRestEnds])
   // A finished unit you tapped open again to look at or fix (Discord: "minimize completed exercises
   // so I view only what I have yet to do"). This screen's own memory: a reload folds it back.
@@ -1565,6 +1737,25 @@ function ActiveWorkout() {
     title: t('Discard workout?'), message: t('The sets you logged in this session will be lost.'), confirmText: t('Discard'), danger: true,
     onConfirm: discardNow,
   })
+  // Pause is the athlete's: the clock, the rest countdown and (through lib/video-sync.js) the
+  // video on the computer stop together. Resuming from here tells the video to play again; a
+  // pause the video made is lifted the same way (store/useStore.js resumeWorkout).
+  const pauseSession = () => {
+    if (!useStore.getState().pauseWorkout('app')) return
+    const ui = useUI.getState()
+    if (ui.timer && !ui.timer.paused && !ui.timer.ready) ui.pauseRest()
+    ui.pauseWork()
+  }
+  const resumeSession = () => {
+    if (!useStore.getState().resumeWorkout('app')) return
+    const ui = useUI.getState()
+    if (ui.timer?.paused) ui.resumeRest()
+    ui.resumeWork()
+  }
+  const openVideoSyncSheet = () => {
+    useUI.getState().openSheet(close => <VideoSyncSheet close={close} />)
+  }
+
   // The header ⋯, in groups: the settings you change at the gym first (their own sheet, the same
   // values as Settings), then what to add and what to change about this workout. Nothing in it
   // throws the session away: that is the Finish sheet's (#751).
@@ -1583,6 +1774,12 @@ function ActiveWorkout() {
       ] },
       { title: t('This workout'), items: [
         A.backfill && A.entries.length > 0 && { icon: 'checkCircle', label: t('Mark all sets done'), onClick: markAllDone },
+        !editing && !A.backfill && { icon: isPaused(A) ? 'play' : 'pause', label: isPaused(A) ? t('Resume workout') : t('Pause workout'),
+        sub: videoOnline ? t('Video sync') + ' · ' + t('Connected') : null,
+          onClick: isPaused(A) ? resumeSession : pauseSession },
+        !editing && !A.backfill && { icon: 'tv', label: t('Video sync'),
+          sub: videoOnline ? t('Connected') : (readVideoSyncServer() ? t('Relay set') : t('Not configured')),
+          onClick: openVideoSyncSheet },
         { icon: 'pencil', label: t('Rename workout'), onClick: renameWorkoutSheet },
         { icon: 'layout', label: t('Layout'), sub: LAYOUT_LABEL[workoutView] || LAYOUT_LABEL.cards, onClick: openLayoutMenu },
         { icon: 'note', label: A.note ? t('Edit session note') : t('Add session note'), onClick: sessionNoteSheet },
@@ -1890,6 +2087,22 @@ function ActiveWorkout() {
       // stopRest() first so a rest that belongs after this set replaces the one that was running.
       if (freshUnitDone) stopRest()
       if (!freshUnit || freshUnit.length <= 1) {
+        // A chapter-to-chapter plan uses restOff / zero rest for every boundary, and a timed
+        // exercise's unfinished sets use the same zero-rest path. startRest(0) cannot carry the
+        // screen forward, so open the first remaining timed set directly. Warm-up hand-offs still
+        // wait for their own flow.
+        const direct = freshUnitDone
+          ? (nextUnit?.length === 1 ? openTimedSet(fresh.entries, nextUnit[0]) : null)
+          : (partner && !partner.done ? null : openTimedSet(fresh.entries, idx, i + 1))
+        if (autoStartNext && m === 'time' && restAfter === 0
+          && !restBeforeWarmup && direct && !useUI.getState().work) {
+          if (fresh.cur !== direct.idx) {
+            update(s => { if (s.active) s.active.cur = direct.idx })
+          }
+          startTimed(direct.idx, direct.i)
+          onFocusProgress?.({ unitDone: freshUnitDone })
+          return
+        }
         if (!restBeforeWarmup && restAfterSet({ unitDone: freshUnitDone, lastUnit: freshWorkoutDone })) startRest(restAfter, idx, { forSet: i })
         onFocusProgress?.({ unitDone: freshUnitDone })
         return
@@ -1948,6 +2161,8 @@ function ActiveWorkout() {
     },
     finish: () => { if (!useStore.getState().S.active?.editingWorkoutId) finishWorkoutNow() },
     discard: () => { if (!useStore.getState().S.active?.editingWorkoutId) discardNow() },
+    pause: () => { if (!useStore.getState().S.active?.editingWorkoutId) pauseSession() },
+    resume: () => { if (!useStore.getState().S.active?.editingWorkoutId) resumeSession() },
   }), [])
 
   // The Lock Screen's Done (lib/live-activity.js) ticks its set through this same toggle, as if
@@ -2160,7 +2375,7 @@ function ActiveWorkout() {
       {editing
         ? <button className="iconbtn" aria-label={t('Close editor')} title={t('Close editor')} onClick={() => exitWorkoutEdit()}><Icon name="xmark" /></button>
         : <button className="iconbtn" aria-label={t('Minimize')} title={t('Minimize')} onClick={() => nav('/home')}><Icon name="chevronDown" /></button>}
-      <div className="whdr-mid"><div className="whdr-name">{A.name}</div><div className="sub">{(A.backfill || editing) ? fmtDate(A.d, true) : <Elapsed start={A.start} />} · {t('{0} sets', done + '/' + total)}</div></div>
+      <div className="whdr-mid"><div className="whdr-name">{A.name}</div><div className="sub">{(A.backfill || editing) ? fmtDate(A.d, true) : <Elapsed active={A} />} · {t('{0} sets', done + '/' + total)}</div></div>
       {!chipRow && sessionMap}
       <button className="iconbtn" aria-label={t('Workout options')} title={t('Workout options')} onClick={openViewMenu}><Icon name="more" /></button>
       <button className="btn primary pill whdr-finish" aria-label={editing ? t('Save changes') : undefined}
@@ -2177,6 +2392,15 @@ function ActiveWorkout() {
         anywhere in a long stack. */}
     {listMode && chipRow}
     </div>
+    {/* Frozen clock (lib/workout-pause.js): paused time is not training time, and the way back
+        into the session sits here rather than behind the ⋯ menu. */}
+    {!editing && !A.backfill && isPaused(A) && (
+      <div className="wpause" role="status">
+        <Icon name="pause" />
+        <span className="wpause-txt">{A.pausedBy === 'video' ? t('Paused with the video') : t('Paused')}</span>
+        <button className="btn primary pill" onClick={resumeSession}>{t('Resume')}</button>
+      </div>
+    )}
     {editing && <p className="muted small">{t('Editing a saved workout. Date and duration stay unchanged.')}</p>}
     {A.backfill && <div className="muted small" style={{ marginBottom: 8 }}>{t('Logging a past workout, so no rest timers.')}</div>}
 

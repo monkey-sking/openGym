@@ -32,6 +32,11 @@
 "More" = "More";
 "Effort" = "Effort";
 "None" = "None";
+"Current" = "Current";
+"Pause" = "Pause";
+"Paused" = "Paused";
+"Resume" = "Resume";
+"Paused with the video" = "Paused with the video";
 "Last time: %@" = "Last time: %@";
 "No workout running" = "No workout running";
 "Not synced yet" = "Not synced yet";

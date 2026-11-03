@@ -32,6 +32,11 @@
 "More" = "Больше";
 "Effort" = "Усилие";
 "None" = "Нет";
+"Current" = "Текущее";
+"Pause" = "Пауза";
+"Paused" = "На паузе";
+"Resume" = "Продолжить";
+"Paused with the video" = "Приостановлено вместе с видео";
 "Last time: %@" = "В прошлый раз: %@";
 "No workout running" = "Тренировка не идёт";
 "Not synced yet" = "Ещё не синхронизировано";

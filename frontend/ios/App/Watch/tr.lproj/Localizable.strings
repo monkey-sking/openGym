@@ -32,6 +32,11 @@
 "More" = "Çok";
 "Effort" = "Zorluk";
 "None" = "Yok";
+"Current" = "Aktif";
+"Pause" = "Duraklat";
+"Paused" = "Duraklatıldı";
+"Resume" = "Devam et";
+"Paused with the video" = "Videoyla birlikte duraklatıldı";
 "Last time: %@" = "Geçen sefer: %@";
 "No workout running" = "Devam eden antrenman yok";
 "Not synced yet" = "Henüz eşitlenmedi";

@@ -32,6 +32,11 @@
 "More" = "많음";
 "Effort" = "강도";
 "None" = "없음";
+"Current" = "현재";
+"Pause" = "일시정지";
+"Paused" = "일시정지됨";
+"Resume" = "이어하기";
+"Paused with the video" = "비디오와 함께 일시정지됨";
 "Last time: %@" = "지난번: %@";
 "No workout running" = "진행 중인 운동이 없어요";
 "Not synced yet" = "아직 동기화되지 않았어요";

@@ -16,6 +16,10 @@ final class HealthReadCoreTests: XCTestCase {
 
     func testOwnRecordsAreRecognised() {
         XCTAssertTrue(HealthReadCore.isOwn(source: "com.withings.wiscale2", syncId: "opengym-bw-2026-10-15"))
+        XCTAssertTrue(HealthReadCore.isOwn(source: "com.7fei.opengym", syncId: nil))
+        XCTAssertTrue(HealthReadCore.isOwn(source: "com.7fei.opengym.watchkitapp", syncId: nil))
+        XCTAssertTrue(HealthReadCore.isOwn(source: "com.7fei.opengym.watchkitapp.widgets", syncId: nil))
+        XCTAssertFalse(HealthReadCore.isOwn(source: "com.7fei.opengymx", syncId: nil))
         XCTAssertTrue(HealthReadCore.isOwn(source: "ch.duartesantos.opengym", syncId: nil))
         XCTAssertTrue(HealthReadCore.isOwn(source: "ch.duartesantos.opengym.watchkitapp", syncId: nil))
         XCTAssertFalse(HealthReadCore.isOwn(source: "ch.duartesantos.opengymx", syncId: nil))
@@ -25,6 +29,7 @@ final class HealthReadCoreTests: XCTestCase {
     func testWeighInsLeaveOutOpenGymsOwn() {
         let out = HealthReadCore.weights([
             .init(ms: 2_000, kg: 80, id: "b", source: "ch.duartesantos.opengym", syncId: "opengym-bw-2026-10-15"),
+            .init(ms: 4_000, kg: 79.5, id: "d", source: "com.7fei.opengym.watchkitapp", syncId: nil),
             .init(ms: 1_000, kg: 81.25, id: "a", source: "com.withings.wiscale2", syncId: nil),
             .init(ms: 3_000, kg: 0, id: "c", source: "com.example", syncId: nil),
         ])

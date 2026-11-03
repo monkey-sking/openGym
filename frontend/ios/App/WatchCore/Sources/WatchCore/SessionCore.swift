@@ -30,7 +30,9 @@ import Foundation
  *       a snapshot without it ends it here; ticks the watch made meanwhile are still sent, and
  *       the phone writes them into the saved workout.
  *   started on the watch while the phone was away
- *       kept until the phone reports it back running; a snapshot without it does not end it.
+ *       kept until the phone reports it back running; a snapshot without an active workout does
+ *       not end it. If the phone started another workout meanwhile, the phone's workout wins and
+ *       the unconfirmed watch workout is abandoned before any of its ticks can land on it.
  */
 
 struct PendingTick: Codable, Equatable {
@@ -51,25 +53,139 @@ struct SessionState: Codable, Equatable {
     var startedHere: String?
     /// Sessions finished here that the phone may still report running for a while.
     var finishedHere: [String] = []
-    /// Ticks made here, by "exerciseId#setIndex", until a snapshot shows them.
+    /// Ticks made here, by `SessionCore.key` ("exerciseId#entryIndex#setIndex"), until a snapshot
+    /// shows them.
     var pending: [String: PendingTick] = [:]
     /// The exercise on screen.
     var entryIndex = 0
-    /// Sets passed over here ("exerciseId#setIndex"), not done: the next one comes up instead.
+    /// Sets passed over here (`SessionCore.key`), not done: the next one comes up instead.
     /// Optional, like every field added later, so a state saved by an older build still loads.
     var skipped: [String]?
+    /// The newest stamped phone snapshot applied here. Persisted so a relaunch cannot replay an
+    /// application context from before the workout that is currently running.
+    var lastSnapshotAt: Double?
+}
+
+/// The state after a phone snapshot, plus the watch workout it had to abandon because the phone
+/// started a different one first. SessionStore uses the id to end the old HealthKit session.
+struct SnapshotApplyResult: Equatable {
+    var state: SessionState
+    var abandonedWorkoutID: String?
+    /// The phone explicitly has no active workout, so this local workout ended there. SessionStore
+    /// ends its HealthKit session and returns to idle without showing a phone-ended summary.
+    var phoneEndedWorkoutID: String?
+    /// False for a stale or duplicate packet. SessionStore must not run any side effect then.
+    var accepted: Bool
+}
+
+/// The newest phone snapshot applied on this watch. Application contexts and reachable messages
+/// can arrive out of order, and a context saved before the current workout can still be the one
+/// WatchConnectivity hands us at launch. Applying that older `active: nil` would end the HealthKit
+/// workout in the middle of a session, so only snapshots newer than the last applied one may
+/// change session state.
+struct SnapshotWatermark: Equatable {
+    private(set) var latest: Double?
+
+    init(latest: Double? = nil) {
+        self.latest = latest?.isFinite == true ? latest : nil
+    }
+
+    /// Before the first stamped snapshot, an unstamped one is kept for compatibility with an older
+    /// phone. Once a timestamp has been accepted, unstamped packets are stale by definition. A
+    /// stamped one must be strictly newer; an equal timestamp is an already-applied duplicate.
+    mutating func accept(_ at: Double?) -> Bool {
+        guard let at, at.isFinite else { return latest == nil }
+        if let latest, at <= latest { return false }
+        latest = at
+        return true
+    }
+
+    static func timestamp(from raw: Any?) -> Double? {
+        switch raw {
+        case let n as NSNumber: return n.doubleValue
+        case let d as Double: return d
+        default: return nil
+        }
+    }
 }
 
 typealias Event = [String: Any]
 
+/// How long a HealthKit launch waits for the phone's first WatchConnectivity snapshot before the
+/// watch starts its session anyway. A workout already restored locally, or any valid snapshot,
+/// ends the wait immediately so the phone's workout and its planned type win when available.
+enum LaunchSnapshotWait {
+    static let timeout: TimeInterval = 1.5
+
+    static func shouldWait(hasSnapshot: Bool, hasWorkout: Bool, elapsed: TimeInterval) -> Bool {
+        !hasSnapshot && !hasWorkout && elapsed < timeout
+    }
+}
+
+/// What an exercise's page represents in the session right now.
+enum EntryStatus: Equatable {
+    case current, done, upcoming
+}
+
 enum SessionCore {
-    static func key(_ exId: String, _ si: Int, _ side: String? = nil) -> String {
-        side.map { "\(exId)#\(si)#\($0)" } ?? "\(exId)#\(si)"
+    /// The range `Text(timerInterval:)` can render for a running countdown. SwiftUI may redraw a
+    /// countdown once after its deadline, before the owner clears it; `ClosedRange` traps when
+    /// its lower bound is later than its upper bound, so callers must use this guard instead of
+    /// constructing `Date()...end` themselves.
+    static func countdownRange(end: Date, now: Date = Date()) -> ClosedRange<Date>? {
+        guard end > now else { return nil }
+        return now...end
+    }
+
+    /// The same exercise id can appear in a workout more than once (a repeated catalog movement),
+    /// so the entry index is part of the key: set 0 of entry 0 and set 0 of entry 1 are different
+    /// sets and must not share a pending tick or a skip.
+    static func key(_ exId: String, entry ei: Int, _ si: Int, _ side: String? = nil) -> String {
+        side.map { "\(exId)#\(ei)#\(si)#\($0)" } ?? "\(exId)#\(ei)#\(si)"
+    }
+
+    /// Moves a state saved before the entry index was in the key ("exId#set", or "exId#set#L/R")
+    /// to the current key ("exId#entry#set", plus "#L"/"#R"). A key that cannot be placed on one
+    /// entry is dropped: putting it on the wrong entry would tick a set the athlete did not do.
+    /// Keys already in the current format are kept as they are.
+    static func migrateLegacyKeys(_ s: SessionState) -> SessionState {
+        guard let w = s.workout else { return s }
+        let byExercise = Dictionary(grouping: w.entries.indices, by: { w.entries[$0].id })
+
+        func migrated(_ old: String) -> String? {
+            let parts = old.split(separator: "#", omittingEmptySubsequences: false).map(String.init)
+            let side: String? = parts.last == "L" || parts.last == "R" ? parts.last : nil
+            let bare = side == nil ? parts : Array(parts.dropLast())
+            if bare.count == 3 { return old }                 // current: exId#entry#set(#side)
+            guard bare.count == 2, let si = Int(bare[1]),
+                  let matches = byExercise[bare[0]], matches.count == 1 else { return nil }
+            let ei = matches[0]
+            guard w.entries[ei].sets.indices.contains(si) else { return nil }
+            if side != nil, w.entries[ei].sets[si].sides == nil { return nil }
+            return key(bare[0], entry: ei, si, side)
+        }
+
+        var next = s
+        next.pending = [:]
+        for (old, tick) in s.pending {
+            if let new = migrated(old) { next.pending[new] = tick }
+        }
+        next.skipped = s.skipped?.compactMap(migrated)
+        return next
     }
 
     /// A snapshot from the phone, over what the watch has.
-    static func applySnapshot(_ s0: SessionState, _ snap: Snapshot) -> SessionState {
+    static func applySnapshot(_ s0: SessionState, _ snap: Snapshot, at: Double? = nil) -> SessionState {
+        applySnapshotResult(s0, snap, at: at).state
+    }
+
+    static func applySnapshotResult(_ s0: SessionState, _ snap: Snapshot, at: Double? = nil) -> SnapshotApplyResult {
+        var watermark = SnapshotWatermark(latest: s0.lastSnapshotAt)
+        guard watermark.accept(at) else {
+            return SnapshotApplyResult(state: s0, abandonedWorkoutID: nil, phoneEndedWorkoutID: nil, accepted: false)
+        }
         var s = s0
+        s.lastSnapshotAt = watermark.latest
         s.ready = snap.ready
         if let u = snap.unit { s.unit = u }
         if let r = snap.restSec, r > 0 { s.restSec = r }
@@ -77,30 +193,58 @@ enum SessionCore {
 
         // A session started here that the phone has not reported back yet stays, whatever it sends.
         let unconfirmed = s.workout?.id != nil && s.workout?.id == s.startedHere
-        guard var next = snap.active, !(next.id.map { s.finishedHere.contains($0) } ?? false) else {
-            // No workout on the phone, or one the watch has finished already.
-            if unconfirmed { return s }
+        guard let active = snap.active else {
+            // No workout on the phone. An unconfirmed watch start is waiting for the phone to
+            // receive its start event; every other local workout has really ended on the phone.
+            guard let localID = s.workout?.id else { return SnapshotApplyResult(state: s, abandonedWorkoutID: nil, phoneEndedWorkoutID: nil, accepted: true) }
+            if unconfirmed {
+                return SnapshotApplyResult(state: s, abandonedWorkoutID: nil, phoneEndedWorkoutID: nil, accepted: true)
+            }
             s.workout = nil
             s.pending = [:]
-            return s
+            s.skipped = nil
+            s.startedHere = nil
+            s.entryIndex = 0
+            return SnapshotApplyResult(state: s, abandonedWorkoutID: nil, phoneEndedWorkoutID: localID, accepted: true)
+        }
+        var next = active
+        if let finished = next.id, s.finishedHere.contains(finished) {
+            // This watch already finished it. A delayed snapshot cannot revive it, and must not
+            // end a different workout that is active here now.
+            if s.workout?.id == finished {
+                s.workout = nil
+                s.pending = [:]
+                s.skipped = nil
+                s.startedHere = nil
+                s.entryIndex = 0
+            }
+            return SnapshotApplyResult(state: s, abandonedWorkoutID: nil, phoneEndedWorkoutID: nil, accepted: true)
         }
         let same = next.id != nil && next.id == s.workout?.id
+        let abandoned = !same ? s.workout?.id : nil
         if next.id != nil && next.id == s.startedHere { s.startedHere = nil }
-        if !same && unconfirmed {
-            // The phone runs a different workout than the one started here and not yet confirmed:
-            // the watch keeps its own; the phone keeps its own (frontend: a start while another runs).
-            return s
+        // A tap here moves the pause on before the phone has heard it. Keep that local state until
+        // a snapshot with the same or a newer revision arrives; a phone resume has a newer one.
+        if same, let local = s.workout, let localRev = local.pauseRev,
+           next.pauseRev == nil || next.pauseRev! < localRev {
+            next.pausedAt = local.pausedAt
+            next.pausedMs = local.pausedMs
+            next.pauseRev = local.pauseRev
+            next.pausedBy = local.pausedBy
         }
         if !same {
-            // Another workout (or the first one this watch sees): its own position, no old ticks.
+            // The phone has the one active workout. If this watch also started a different one
+            // before the phone confirmed it, the phone's workout wins: no old ticks or skips can
+            // be applied to it, and its own position is used.
             s.pending = [:]
             s.skipped = nil
+            s.startedHere = nil
             s.entryIndex = next.cur
         }
         // The watch's ticks the phone has not shown yet win; the later tick wins on a set both changed.
         for (ei, e) in next.entries.enumerated() {
             for (si, row) in e.sets.enumerated() {
-                let k = key(e.id, si)
+                let k = key(e.id, entry: ei, si)
                 if let p = s.pending[k] {
                     if row.done && (row.at ?? .infinity) >= p.at {
                         s.pending[k] = nil          // the phone has it (or a later change of its own)
@@ -114,7 +258,7 @@ enum SessionCore {
                 }
                 // A per-side set: each side by itself, the same way.
                 for side in ["L", "R"] {
-                    let ks = key(e.id, si, side)
+                    let ks = key(e.id, entry: ei, si, side)
                     guard let p = s.pending[ks] else { continue }
                     let have = next.entries[ei].sets[si]
                     if have.sides?[side].done == true && (row.at ?? .infinity) >= p.at {
@@ -129,7 +273,7 @@ enum SessionCore {
         }
         s.entryIndex = min(max(0, s.entryIndex), next.entries.count)   // the last page is Finish
         s.workout = next
-        return s
+        return SnapshotApplyResult(state: s, abandonedWorkoutID: abandoned, phoneEndedWorkoutID: nil, accepted: true)
     }
 
     /// One side of a per-side set done, the row's own numbers following both sides (as the phone's
@@ -168,7 +312,7 @@ enum SessionCore {
             workout.entries[ei].sets[si].at = at
         }
         s.workout = workout
-        s.pending[key(e.id, si, oneSide)] = PendingTick(w: w, r: r, at: at, sec: sec)
+        s.pending[key(e.id, entry: ei, si, oneSide)] = PendingTick(w: w, r: r, at: at, sec: sec)
         var event: Event = [
             "id": id, "type": "setDone", "wid": workout.id ?? "", "exId": e.id,
             "entryIdx": ei, "setIdx": si, "at": at,
@@ -183,17 +327,42 @@ enum SessionCore {
         return (s, event)
     }
 
+    /// The session paused here, and the event for the phone. A pause already running changes
+    /// nothing, so tapping again after a missed snapshot cannot move the clock.
+    static func pause(_ s0: SessionState, at: Double, id: String) -> (SessionState, Event?) {
+        guard var w = s0.workout, !w.isPaused else { return (s0, nil) }
+        var s = s0
+        w.pausedAt = at
+        w.pausedBy = "watch"
+        w.pauseRev = (w.pauseRev ?? 0) + 1
+        s.workout = w
+        return (s, ["id": id, "type": "pause", "wid": w.id ?? "", "at": at, "pauseRev": w.pauseRev ?? 0])
+    }
+
+    /// The session running again: the stretch just ended joins `pausedMs`, and the event tells the
+    /// phone which revision it is. Resuming a running session changes nothing.
+    static func resume(_ s0: SessionState, at: Double, id: String) -> (SessionState, Event?) {
+        guard var w = s0.workout, let pausedAt = w.pausedAt, pausedAt > 0 else { return (s0, nil) }
+        var s = s0
+        w.pausedMs = (w.pausedMs ?? 0) + max(0, at - pausedAt)
+        w.pausedAt = nil
+        w.pausedBy = nil
+        w.pauseRev = (w.pauseRev ?? 0) + 1
+        s.workout = w
+        return (s, ["id": id, "type": "resume", "wid": w.id ?? "", "at": at, "pauseRev": w.pauseRev ?? 0])
+    }
+
     /// A set passed over here: not done, the next one comes up (a tap on its dot brings it back).
     static func skip(_ s0: SessionState, entry ei: Int, set si: Int) -> SessionState {
         guard let w = s0.workout, w.entries.indices.contains(ei), w.entries[ei].sets.indices.contains(si) else { return s0 }
         var s = s0
-        let k = key(w.entries[ei].id, si)
+        let k = key(w.entries[ei].id, entry: ei, si)
         s.skipped = Array(Set((s.skipped ?? []) + [k])).sorted()
         return s
     }
 
-    static func isSkipped(_ s: SessionState, _ exId: String, _ si: Int) -> Bool {
-        s.skipped?.contains(key(exId, si)) ?? false
+    static func isSkipped(_ s: SessionState, _ exId: String, entry ei: Int, _ si: Int) -> Bool {
+        s.skipped?.contains(key(exId, entry: ei, si)) ?? false
     }
 
     /// Where to go after a set of exercise `ei` (set `si`) was done, and whether a rest comes first.
@@ -320,7 +489,17 @@ enum SessionCore {
         let sets = w.entries[ei].sets
         if let p = picked, sets.indices.contains(p), !sets[p].done { return p }
         let exId = w.entries[ei].id
-        return sets.indices.first { !sets[$0].done && !isSkipped(s, exId, $0) }
+        return sets.indices.first { !sets[$0].done && !isSkipped(s, exId, entry: ei, $0) }
+    }
+
+    /// The page state shown on the watch. A completed exercise stays done even when its page is
+    /// selected; only the selected exercise with a set still to do is current.
+    static func entryStatus(_ s: SessionState, entry ei: Int) -> EntryStatus {
+        guard let w = s.workout, w.entries.indices.contains(ei) else { return .upcoming }
+        let sets = w.entries[ei].sets
+        if !sets.isEmpty, sets.allSatisfy({ $0.done }) { return .done }
+        if ei == s.entryIndex, setIndex(s, entry: ei) != nil { return .current }
+        return .upcoming
     }
 
     /// Sets done and sets in all, for the complication's ring.
@@ -328,6 +507,12 @@ enum SessionCore {
         guard let w = s.workout else { return (0, 0) }
         let all = w.entries.flatMap { $0.sets }.filter { !$0.warmup }
         return (all.filter { $0.done }.count, all.count)
+    }
+
+    /// The training time frozen when the workout paused, for the paused screen.
+    static func pausedElapsed(_ w: ActiveWorkout?) -> Double? {
+        guard let w, let start = w.start, let pausedAt = w.pausedAt, pausedAt > 0 else { return nil }
+        return max(0, (pausedAt - start - (w.pausedMs ?? 0)) / 1000)
     }
 
     /// The workout as the summary shows it at its end (here, or on the phone).
@@ -348,7 +533,8 @@ enum SessionCore {
             if let best = e.best, beatsBest(e, work.filter { $0.done }, best) { prs.append(e.name) }
         }
         let from = w.start ?? startedAt
-        return WorkoutSummary(name: w.name, unit: w.unit, duration: from.map { max(0, (end - $0) / 1000) },
+        let held = (w.pausedMs ?? 0) + (w.pausedAt.map { max(0, end - $0) } ?? 0)
+        return WorkoutSummary(name: w.name, unit: w.unit, duration: from.map { max(0, (end - $0 - held) / 1000) },
                               sets: sets, volume: volume, prs: prs, endedOnPhone: endedOnPhone)
     }
 

@@ -86,4 +86,24 @@ describe('a hold across a reload', () => {
     localStorage.setItem(WORK_KEY, JSON.stringify({ endsAt: Date.now() + 30_000, total: 45, label: 'Plank', overtime: false, owner }))
     expect(restoreWork()).toBe(false)
   })
+
+  it('comes back paused with a paused session, and running again with a running one', () => {
+    const savedHold = { endsAt: Date.now() + 40_000, total: 45, left: 40, paused: true, label: 'Plank', overtime: false, owner }
+    localStorage.setItem(WORK_KEY, JSON.stringify(savedHold))
+    useStore.getState().pauseWorkout('video')
+    expect(restoreWork()).toBe(true)
+    expect(useUI.getState().work).toMatchObject({ left: 40, paused: true })
+    vi.advanceTimersByTime(60_000)
+    expect(useUI.getState().work).toMatchObject({ left: 40, paused: true })
+
+    // The session is running again (the video resumed): the hold runs with it from where it was.
+    useStore.getState().resumeWorkout('video')
+    useUI.setState({ work: null })
+    localStorage.setItem(WORK_KEY, JSON.stringify(savedHold))
+    expect(restoreWork()).toBe(true)
+    expect(useUI.getState().work).toMatchObject({ left: 40 })
+    expect(useUI.getState().work.paused).toBeUndefined()
+    vi.advanceTimersByTime(1000)
+    expect(useUI.getState().work.left).toBe(39)
+  })
 })

@@ -24,6 +24,8 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
     }
     @Published private(set) var heartRate: Double?
     @Published private(set) var running = false
+    /// The last HealthKit lifecycle error, for the hidden watch diagnostic.
+    @Published private(set) var lastError: String?
     /// A session runs and no reading has come yet.
     var measuring: Bool { running && heartRate == nil }
 
@@ -121,6 +123,7 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
     /// running keeps its type.
     func start(workoutId wid: String? = nil, type: String? = nil, opened: HKWorkoutActivityType? = nil) {
         wanted = true
+        lastError = nil
         if let wid = wid { workoutId = wid }
         // Already running (opened by the phone before its workout arrived): only the id to add.
         if session != nil && !prepared { tag(); return }
@@ -128,11 +131,25 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
         prepared = false
         let now = Date()
         s.startActivity(with: now)
-        b.beginCollection(withStart: now) { _, _ in }
         tagged = nil
         tag()
-        startQuery(from: now)
-        running = true
+        b.beginCollection(withStart: now) { [weak self, weak s, weak b] ok, error in
+            DispatchQueue.main.async {
+                guard let self = self, let s = s, let b = b,
+                      s === self.session, b === self.builder else { return }
+                guard ok else {
+                    self.lastError = error?.localizedDescription ?? "HealthKit could not begin collecting workout data"
+                    self.running = false
+                    self.heartRate = nil
+                    self.paused = false
+                    s.end()
+                    return
+                }
+                self.lastError = nil
+                self.startQuery(from: now)
+                self.running = true
+            }
+        }
     }
 
     /// A new session of the planned type and its builder, when Apple Health is on.
@@ -157,6 +174,7 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
         } catch {
             session = nil
             builder = nil
+            lastError = error.localizedDescription
             return false
         }
     }
@@ -203,7 +221,8 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
                 self.tag()
                 if let q = self.query { self.store.stop(q) }
                 self.startQuery(from: s.startDate ?? Date())
-                self.running = true
+                self.running = s.state == .running || s.state == .paused
+                self.lastError = nil
             }
         }
     }
@@ -296,6 +315,7 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
         wanted = false
         workoutId = nil
         prepared = false
+        lastError = nil
         if let q = query { store.stop(q); query = nil }
         let endAt = at ?? Date()
         let all = samples.filter { $0.0 <= endAt }.map { $0.1 }
@@ -330,10 +350,49 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
 
     /* ---------- delegates ---------- */
 
-    func workoutSession(_ workoutSession: HKWorkoutSession, didChangeTo toState: HKWorkoutSessionState, from fromState: HKWorkoutSessionState, date: Date) {}
+    func workoutSession(_ workoutSession: HKWorkoutSession, didChangeTo toState: HKWorkoutSessionState,
+                        from fromState: HKWorkoutSessionState, date: Date) {
+        DispatchQueue.main.async {
+            guard workoutSession === self.session else { return }
+            switch toState {
+            case .notStarted:
+                self.running = false
+            case .prepared:
+                self.running = false
+                self.paused = false
+            case .running:
+                self.running = true
+                self.paused = false
+                self.lastError = nil
+            case .paused:
+                self.running = true
+                self.paused = true
+            case .ended, .stopped:
+                if let q = self.query { self.store.stop(q); self.query = nil }
+                self.running = false
+                self.paused = false
+                self.heartRate = nil
+                self.session = nil
+                self.builder = nil
+            @unknown default:
+                self.running = false
+                self.paused = false
+                self.heartRate = nil
+            }
+        }
+    }
 
     func workoutSession(_ workoutSession: HKWorkoutSession, didFailWithError error: Error) {
-        DispatchQueue.main.async { self.running = false }
+        DispatchQueue.main.async {
+            guard workoutSession === self.session else { return }
+            self.lastError = error.localizedDescription
+            self.running = false
+            self.paused = false
+            self.heartRate = nil
+            if let q = self.query { self.store.stop(q); self.query = nil }
+            self.session = nil
+            self.builder = nil
+        }
     }
 
     func workoutBuilderDidCollectEvent(_ workoutBuilder: HKLiveWorkoutBuilder) {}

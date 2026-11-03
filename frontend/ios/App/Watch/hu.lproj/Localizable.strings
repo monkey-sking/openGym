@@ -32,6 +32,11 @@
 "More" = "Több";
 "Effort" = "Megerőltetés";
 "None" = "Nincs";
+"Current" = "Aktuális";
+"Pause" = "Szüneteltetés";
+"Paused" = "Szüneteltetve";
+"Resume" = "Folytatás";
+"Paused with the video" = "A videóval együtt szüneteltetve";
 "Last time: %@" = "Legutóbb: %@";
 "No workout running" = "Nincs folyamatban edzés";
 "Not synced yet" = "Még nincs szinkronizálva";

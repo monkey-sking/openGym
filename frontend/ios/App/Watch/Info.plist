@@ -32,7 +32,7 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>ch.opengym.app.watchkitapp</string>
+			<string>com.7fei.opengym.watchkitapp</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>opengym-watch</string>
@@ -42,7 +42,7 @@
 	<key>WKApplication</key>
 	<true/>
 	<key>WKCompanionAppBundleIdentifier</key>
-	<string>ch.opengym.app</string>
+	<string>com.7fei.opengym</string>
 	<key>WKRunsIndependentlyOfCompanionApp</key>
 	<false/>
 </dict>

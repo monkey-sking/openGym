@@ -32,6 +32,11 @@
 "More" = "更多";
 "Effort" = "强度";
 "None" = "无";
+"Current" = "当前";
+"Pause" = "暂停";
+"Paused" = "已暂停";
+"Resume" = "继续";
+"Paused with the video" = "已随视频暂停";
 "Last time: %@" = "上次: %@";
 "No workout running" = "没有进行中的训练";
 "Not synced yet" = "尚未同步";

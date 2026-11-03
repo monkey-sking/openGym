@@ -32,6 +32,11 @@
 "More" = "Більше";
 "Effort" = "Зусилля";
 "None" = "Немає";
+"Current" = "Поточна";
+"Pause" = "Пауза";
+"Paused" = "На паузі";
+"Resume" = "Продовжити";
+"Paused with the video" = "Призупинено разом із відео";
 "Last time: %@" = "Минулого разу: %@";
 "No workout running" = "Тренування не триває";
 "Not synced yet" = "Ще не синхронізовано";

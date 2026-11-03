@@ -2430,7 +2430,7 @@ describe('workout view header menu', () => {
     // No Discard here: it ended this menu as a red trash, right where the exercise ⋯ keeps
     // Remove exercise, and got hit by mistake (#751). The Finish sheet has it.
     expect(menuItemsOf(menu).map(it => it.label)).toEqual([
-      'Workout settings', 'Add exercise', 'Add routine', 'Rename workout', 'Layout', 'Add session note', 'Don’t count for progression',
+      'Workout settings', 'Add exercise', 'Add routine', 'Pause workout', 'Video sync', 'Rename workout', 'Layout', 'Add session note', 'Don’t count for progression',
     ])
     expect(menuItemsOf(menu).some(it => it.danger)).toBe(false)
     expect(item(menu, 'Workout settings').sub).toBe('1:30 rest · Silent')
@@ -2947,6 +2947,143 @@ describe('workout controls: the more menu and the set menu', () => {
     await rerender()
     expect(mocks.S.active.cur).toBe(0)
     mocks.timer = null
+  })
+
+  // Settings → Workout, "Start the next exercise by itself": the same rest also starts the
+  // exercise it moved on to, so a session of one timed set per exercise runs from its first play
+  // button. Off (the default) it stays the tap it always was.
+  it('with the hands-free chain on, the rest that moves on also starts the next timed exercise', async () => {
+    const plank = exercise('plain-plank', [true, true], { target: { mode: 'time', sec: 30 } })
+    const nextPlank = exercise('plain-row', [false], { target: { mode: 'time', sec: 45 } })
+    await mount([plank, nextPlank], 0, { autoStartNext: true })
+    mocks.startWork.mockClear()
+    mocks.timer = { ready: true, left: 0, forIdx: 0, endsAt: 321 }
+    await rerender()
+    expect(mocks.S.active.cur).toBe(1)
+    expect(mocks.startWork).toHaveBeenCalledTimes(1)
+    expect(mocks.startWork.mock.calls[0][0]).toBe(45)                      // the next exercise's own seconds
+    expect(mocks.startWork.mock.calls[0].at(-1)).toMatchObject({ idx: 1, i: 0 })
+    mocks.timer = null
+  })
+
+  it('without it, that rest still only brings the screen up', async () => {
+    const plank = exercise('plain-plank', [true, true], { target: { mode: 'time', sec: 30 } })
+    const nextPlank = exercise('plain-row', [false], { target: { mode: 'time', sec: 45 } })
+    await mount([plank, nextPlank], 0)
+    mocks.startWork.mockClear()
+    mocks.timer = { ready: true, left: 0, forIdx: 0, endsAt: 322 }
+    await rerender()
+    expect(mocks.S.active.cur).toBe(1)
+    expect(mocks.startWork).not.toHaveBeenCalled()
+    mocks.timer = null
+  })
+
+  it('with zero rest, finishing a timed chapter starts the next chapter directly', async () => {
+    const chapter1 = exercise('chapter-1', [false], {
+      target: { mode: 'time', sec: 44, restOff: true },
+      sets: [{ sec: 44, done: false }],
+    })
+    const chapter2 = exercise('chapter-2', [false], {
+      target: { mode: 'time', sec: 30, restOff: true },
+      sets: [{ sec: 30, done: false }],
+    })
+    await mount([chapter1, chapter2], 0, { autoStartNext: true })
+    mocks.startWork.mockClear()
+    mocks.startRest.mockClear()
+
+    await toggleSet(0)
+
+    expect(mocks.S.active.cur).toBe(1)
+    expect(mocks.startWork).toHaveBeenCalledTimes(1)
+    expect(mocks.startWork.mock.calls[0][0]).toBe(30)
+    expect(mocks.startWork.mock.calls[0].at(-1)).toMatchObject({ idx: 1, i: 0 })
+    expect(mocks.startRest).not.toHaveBeenCalled()
+  })
+
+  it('with zero rest, finishing a timed set starts the next unfinished set of the same exercise', async () => {
+    const timed = exercise('timed-block', [false, false], {
+      target: { mode: 'time', sec: 30, restOff: true },
+      sets: [{ sec: 20, done: false }, { sec: 45, done: false }],
+    })
+    await mount([timed], 0, { autoStartNext: true })
+    mocks.startWork.mockClear()
+    mocks.startRest.mockClear()
+
+    await toggleSet(0)
+
+    expect(mocks.S.active.cur).toBe(0)
+    expect(mocks.startWork).toHaveBeenCalledTimes(1)
+    expect(mocks.startWork.mock.calls[0][0]).toBe(45)
+    expect(mocks.startWork.mock.calls[0].at(-1)).toMatchObject({ idx: 0, i: 1 })
+    expect(mocks.startRest).not.toHaveBeenCalled()
+  })
+
+  it('Ready continuation starts the first unfinished set, not set zero', async () => {
+    const chapter1 = exercise('chapter-1', [true, true], {
+      target: { mode: 'time', sec: 30 },
+    })
+    const chapter2 = exercise('chapter-2', [false, false], {
+      target: { mode: 'time', sec: 45 },
+      sets: [{ sec: 10, done: true }, { sec: 45, done: false }],
+    })
+    await mount([chapter1, chapter2], 0, { autoStartNext: true })
+    mocks.startWork.mockClear()
+    mocks.timer = { ready: true, left: 0, forIdx: 0, endsAt: 323 }
+
+    await rerender()
+
+    expect(mocks.S.active.cur).toBe(1)
+    expect(mocks.startWork).toHaveBeenCalledTimes(1)
+    expect(mocks.startWork.mock.calls[0][0]).toBe(45)
+    expect(mocks.startWork.mock.calls[0].at(-1)).toMatchObject({ idx: 1, i: 1 })
+    mocks.timer = null
+  })
+
+  it('keeps a positive rest before automatically starting the next timed chapter', async () => {
+    const chapter1 = exercise('chapter-1', [false], {
+      target: { mode: 'time', sec: 44, restSec: 15 },
+      sets: [{ sec: 44, done: false }],
+    })
+    const chapter2 = exercise('chapter-2', [false], {
+      target: { mode: 'time', sec: 30 },
+      sets: [{ sec: 30, done: false }],
+    })
+    await mount([chapter1, chapter2], 0, { autoStartNext: true })
+    mocks.startWork.mockClear()
+    mocks.startRest.mockClear()
+
+    await toggleSet(0)
+
+    expect(mocks.startRest).toHaveBeenCalledWith(15, 0, { forSet: 0 })
+    expect(mocks.startWork).not.toHaveBeenCalled()
+
+    mocks.timer = { ready: true, left: 0, forIdx: 0, endsAt: 324 }
+    await rerender()
+
+    expect(mocks.S.active.cur).toBe(1)
+    expect(mocks.startWork).toHaveBeenCalledTimes(1)
+    expect(mocks.startWork.mock.calls[0][0]).toBe(30)
+    expect(mocks.startWork.mock.calls[0].at(-1)).toMatchObject({ idx: 1, i: 0 })
+    mocks.timer = null
+  })
+
+  it('does not start work or rest after the final timed chapter', async () => {
+    const chapter1 = exercise('chapter-1', [true], {
+      target: { mode: 'time', sec: 44, restOff: true },
+      sets: [{ sec: 44, done: true }],
+    })
+    const chapter2 = exercise('chapter-2', [false], {
+      target: { mode: 'time', sec: 30, restOff: true },
+      sets: [{ sec: 30, done: false }],
+    })
+    await mount([chapter1, chapter2], 1, { autoStartNext: true })
+    mocks.startWork.mockClear()
+    mocks.startRest.mockClear()
+
+    await toggleSet(0)
+
+    expect(mocks.startWork).not.toHaveBeenCalled()
+    expect(mocks.startRest).not.toHaveBeenCalled()
   })
 
   // #523: "Skip completed exercises" makes Next hop over a finished exercise in Cards.

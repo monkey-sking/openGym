@@ -99,7 +99,7 @@ export default function RestTimer() {
       <div className="bar" aria-hidden="true"><i style={{ transform: `scaleX(${pct / 100})` }} /></div>
       <div className="tclock">
         <span className="t">{work.left <= 0 && work.overtime ? '+' + clock(-work.left) : clock(work.left)}</span>
-        {work.label && <span className="lbl">{work.label}</span>}
+        {work.label && <span className="lbl">{work.label}{work.paused ? ' · ' + t('Paused') : ''}</span>}
       </div>
       <div className="acts">
         <Button size="sm" onClick={stopWork}>{t('Cancel')}</Button>

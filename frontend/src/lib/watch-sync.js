@@ -34,6 +34,11 @@ export const SNAPSHOT_VERSION = 1
 const APPLIED_KEY = 'gym_watch_applied'
 const APPLIED_MAX = 300
 const SEND_DEBOUNCE_MS = 400
+export const OPEN_RETRY_MS = 1000
+const CONFLICT_KEY = 'gym_watch_conflict'
+const ABANDONED_KEY = 'gym_watch_abandoned'
+const CONFLICT_FOR_MS = 12 * 3600e3
+const ABANDONED_MAX = 5
 // Routines the watch can start besides today's: enough to choose from, small enough to send.
 const READY_MAX = 8
 
@@ -177,6 +182,12 @@ export function buildSnapshot(S, { timer = null, ready = null } = {}) {
       restSec: num(S.restSec) || 0,
       // a rest running on the phone, so the watch counts down the same one
       rest: timer && !timer.paused && !timer.ready && num(timer.endsAt) ? { endsAt: timer.endsAt } : null,
+      // A pause travels with its revision: the watch keeps its own just-tapped pause until a
+      // snapshot at least as new arrives, and a phone resume (a higher revision) always wins.
+      ...(num(A.pausedAt) ? { pausedAt: num(A.pausedAt) } : {}),
+      ...(num(A.pausedMs) ? { pausedMs: num(A.pausedMs) } : {}),
+      ...(num(A.pauseRev) ? { pauseRev: num(A.pauseRev) } : {}),
+      ...(A.pausedBy ? { pausedBy: String(A.pausedBy) } : {}),
       entries: A.entries.filter(e => e && e.id != null).map(e => watchEntry(e, H, S)),
       // Apple Health's workout type on the watch: a run is a run (#799)
       ...(healthType ? { healthType } : {}),
@@ -237,6 +248,7 @@ function entryIndexOf (A, ev) {
  *   setDone { wid, exId, entryIdx, setIdx, w, r, at, rpe?|rir? }   the workout screen's own tick
  *   finish  { wid, at }              the workout screen's own Finish and save
  *   discard { wid, at }              the workout screen's own Discard (confirmed on the watch)
+ *   pause / resume { wid, at }       the workout screen's own pause/resume (the watch's button)
  *   setHr   { wid, exId, entryIdx, setIdx, hr?, restHr? }   heart rate on a set (lib/heart-rate.js)
  *
  * A tick for a workout already saved (finished on the phone while the watch was away) is written
@@ -251,6 +263,16 @@ export function applyEvents (events, getState) {
   for (const ev of events) {
     if (!ev || typeof ev.id !== 'string') continue
     if (applied.includes(ev.id)) { done.push(ev.id); continue }
+    // The phone won this conflict. Keep the events until the watch has received the snapshot that
+    // names its local workout as discarded; then they are safe to acknowledge.
+    if (ev.wid && abandonedFor().includes(ev.wid)) {
+      applied.push(ev.id)
+      done.push(ev.id)
+      continue
+    }
+    // Still waiting for that snapshot: apply nothing from the conflicting workout, including later
+    // ticks and its finish, and leave all of it in the native queue for the next drain.
+    if (ev.wid && readConflict()?.wid === ev.wid) continue
     const S = getState()?.S
     const A = S?.active
     const ours = A && Array.isArray(A.entries) && (!ev.wid || ev.wid === A.id)
@@ -262,8 +284,17 @@ export function applyEvents (events, getState) {
         // Started at the wrist: the watch app is open already, nothing to open there (startWatchSync).
         if (ev.wid) startedOnWatch.add(ev.wid)
         appHandlers.start(Array.isArray(ev.routineIds) ? ev.routineIds : [], { id: ev.wid || null, start: num(ev.at), ...(okBw(ev.bw) ? { bw: num(ev.bw) } : {}) })
+      } else if (ev.wid && ev.wid !== A.id) {
+        // Two workouts started while the link was unavailable: the phone's remains authoritative.
+        // Persist the conflict before trying to send: a failed or skipped resend must survive a
+        // reload and make the watch drop its unconfirmed local workout instead of keeping it.
+        rememberConflict(ev, A.id)
+        if (appHandlers?.resendSnapshot) {
+          try { Promise.resolve(appHandlers.resendSnapshot()).catch(() => {}) } catch { /* keep it queued */ }
+        }
+        continue
       }
-      // A workout already running on the phone is kept; one with the watch's id is this one.
+      // A start for the workout already running here is only an idempotent acknowledgement.
     } else if (ev.type === 'setDone' && saved) {
       if (!appHandlers) break
       const fields = { done: true, ...(num(ev.w) != null ? { w: num(ev.w) } : {}), ...(num(ev.r) != null ? { r: num(ev.r) } : {}), ...(num(ev.sec) != null ? { sec: num(ev.sec) } : {}), ...(num(ev.at) ? { at: num(ev.at) } : {}), ...effortFrom(ev) }
@@ -311,6 +342,20 @@ export function applyEvents (events, getState) {
       }
       if (ev.type === 'finish') handlers.finish()
       else handlers.discard?.()
+    } else if ((ev.type === 'pause' || ev.type === 'resume') && ours) {
+      if (!handlers) {
+        if (appHandlers?.openWorkout) appHandlers.openWorkout()
+        break
+      }
+      // A watch event older than the phone's last pause or resume is already history. The same
+      // revision still applies: the watch may have acted before the phone's snapshot reached it,
+      // and that event is what lets the next resume through after a lost snapshot.
+      const rev = num(ev.pauseRev)
+      const phoneRev = num(A.pauseRev)
+      if (rev == null || phoneRev == null || rev >= phoneRev) {
+        if (ev.type === 'pause') handlers.pause?.()
+        else handlers.resume?.()
+      }
     }
     // Applied, or meaningless now (another workout, a set that is gone): either way it is done.
     applied.push(ev.id)
@@ -467,6 +512,50 @@ export function discardedFor (now = Date.now()) {
   return readDiscarded().filter(x => now - Number(x.at) < DISCARDED_FOR_MS).map(x => x.id)
 }
 
+/** The watch started `wid` while the phone was running another workout. */
+function readConflict (now = Date.now()) {
+  try {
+    const v = JSON.parse(localStorage.getItem(CONFLICT_KEY))
+    if (!v || typeof v.wid !== 'string' || !(Number(v.at) > 0) || now - Number(v.at) >= CONFLICT_FOR_MS) {
+      if (v) localStorage.removeItem(CONFLICT_KEY)
+      return null
+    }
+    return v
+  } catch { return null }
+}
+
+function rememberConflict (ev, phoneWid, now = Date.now()) {
+  const v = {
+    wid: String(ev.wid),
+    ...(typeof ev.id === 'string' ? { startId: ev.id } : {}),
+    ...(phoneWid ? { phoneWid: String(phoneWid) } : {}),
+    at: now,
+  }
+  try { localStorage.setItem(CONFLICT_KEY, JSON.stringify(v)) } catch { /* retried by the queued event */ }
+}
+
+/** Workouts the watch has been told to abandon; their remaining events can now be acknowledged. */
+function readAbandoned (now = Date.now()) {
+  try {
+    const v = JSON.parse(localStorage.getItem(ABANDONED_KEY))
+    return Array.isArray(v) ? v.filter(x => x && typeof x.id === 'string' && Number(x.at) > 0 && now - Number(x.at) < CONFLICT_FOR_MS) : []
+  } catch { return [] }
+}
+
+function abandonedFor (now = Date.now()) {
+  return readAbandoned(now).map(x => x.id)
+}
+
+function abandonWatchWorkout (wid, now = Date.now()) {
+  if (!wid) return
+  const list = [...readAbandoned(now).filter(x => x.id !== wid), { id: wid, at: now }].slice(-ABANDONED_MAX)
+  try { localStorage.setItem(ABANDONED_KEY, JSON.stringify(list)) } catch { /* the next forced send retries */ }
+  const conflict = readConflict(now)
+  if (conflict?.wid === wid) {
+    try { localStorage.removeItem(CONFLICT_KEY) } catch { /* harmless: a newer conflict replaces it */ }
+  }
+}
+
 /**
  * What the watch takes from the app beyond its own settings: the app's language (the watch shows
  * its words in it, whatever the watch itself is set to), and whether a workout starts with the
@@ -485,11 +574,62 @@ export function watchExtras (S) {
   }
 }
 
-export async function startWatchSync ({ useStore, useUI }) {
-  const p = await watchPlugin()
-  if (!p) return () => {}
+export async function startWatchSync ({ useStore, useUI, onWatchError = null, signal = null }) {
   getStateRef = () => useStore.getState()
+  // WCSession activation can take long enough for a workout to start. Watch the store from here,
+  // before any wait, so that start is not lost; it is queued once the link is ready.
+  let earlyOpen = null
+  let stopped = false
+  let onStoreChange = null
+  const resources = new Set()
+  const keep = cleanup => {
+    if (typeof cleanup !== 'function') return () => {}
+    if (stopped) { try { cleanup() } catch { /* already gone */ } return () => {} }
+    resources.add(cleanup)
+    return () => {
+      if (!resources.delete(cleanup)) return
+      try { cleanup() } catch { /* already gone */ }
+    }
+  }
+  const stopResources = () => {
+    for (const cleanup of [...resources].reverse()) {
+      resources.delete(cleanup)
+      try { cleanup() } catch { /* already gone */ }
+    }
+    signal?.removeEventListener('abort', onAbort)
+  }
+  let stopSync = () => {
+    stopped = true
+    onStoreChange = null
+    stopResources()
+  }
+  const onAbort = () => stopSync()
+  if (signal?.aborted) return stopSync
+  signal?.addEventListener('abort', onAbort, { once: true })
+  keep(useStore.subscribe((s, prev) => {
+    if (stopped) return
+    if (onStoreChange) { onStoreChange(s, prev); return }
+    // Before boot has restored the saved state, a running workout is not a Start at the phone.
+    if (s.ready === false) { earlyOpen = null; return }
+    // ready:false -> true is the app restoring its saved state, not a workout the athlete started.
+    // Boot can publish that flag separately from the restored S while status() is still pending:
+    // now that the store is safe to apply, take what the watch queued instead of waiting for status.
+    if (prev?.ready === false && s.ready === true) {
+      earlyOpen = null
+      drainWatchEvents()
+      return
+    }
+    if (s.S === prev.S) return
+    const next = s.S?.active
+    if (shouldOpenOnWatch(prev.S?.active, next)) earlyOpen = next?.id || null
+    else if (earlyOpen && next?.id !== earlyOpen) earlyOpen = null
+  }))
+  const p = await watchPlugin()
+  if (stopped) return stopSync
+  if (!p) { stopSync(); return stopSync }
   let lastSent = null, lastClips = null, tm = null
+  let sendChain = Promise.resolve({ ok: true, sent: false, alreadySent: false })
+  let forcedResend = null
   // The ready sessions only change with the plan, the log or the day: built again only then.
   let readyKey = null, ready = null
   const readyFor = S => {
@@ -500,29 +640,66 @@ export async function startWatchSync ({ useStore, useUI }) {
     }
     return ready
   }
-  // Whether a watch with the app is there: asked at start and when the app comes back, not on every
-  // change. Without one nothing below runs at all: no snapshot, no clips, no bridge call per tick.
+  // WCSession starts asynchronously, so paired + installed is not enough: using the link before it
+  // is activated makes both sends and startWatchApp fail. Asked at start, when the link changes,
+  // and when the app comes back, not on every workout change.
   let linked = false
+  const statusReason = st => {
+    if (!st || st.supported === false) return 'unsupported'
+    if (st.activated !== true) return 'not_activated'
+    if (st.paired !== true) return 'not_paired'
+    if (st.installed !== true) return 'not_installed'
+    return null
+  }
   const checkLink = async () => {
     const was = linked
-    try { const st = await p.WatchBridge.status(); linked = !!(st && st.paired && st.installed) } catch { linked = false }
-    // A watch that is new here (the app just installed on it, or reinstalled): it has nothing yet,
-    // so the snapshot goes again even when it is the same as the last one sent.
-    if (linked && !was) lastSent = null
-    return linked
+    try {
+      const status = await p.WatchBridge.status()
+      if (stopped) return { ok: false, status: null, reason: 'stopped' }
+      const reason = statusReason(status)
+      linked = !reason
+      return { ok: linked, status, reason }
+    } catch (error) {
+      linked = false
+      return { ok: false, status: null, reason: 'status_failed', message: String(error?.message || error || '') }
+    } finally {
+      // A watch that is new here (the app just installed on it, or reinstalled): it has nothing yet,
+      // so the snapshot goes again even when it is the same as the last one sent.
+      if (!stopped && linked && !was) lastSent = null
+    }
   }
   await checkLink()
+  if (stopped) return stopSync
   // Apple Health on the watch follows the phone's own Apple Health switch (Settings → Data).
-  let healthOn = false, offHealth = () => {}
+  let healthOn = false
   try {
     const hs = await import('./health-sync.js')
+    if (stopped) return stopSync
     healthOn = !!(await hs.loadHealth())?.on
-    offHealth = hs.onHealthChange(h => { if (!!h?.on !== healthOn) { healthOn = !!h?.on; schedule() } })
+    if (stopped) return stopSync
+    keep(hs.onHealthChange(h => { if (!!h?.on !== healthOn) { healthOn = !!h?.on; schedule() } }))
   } catch { /* no Apple Health here: the watch measures nothing */ }
+  if (stopped) return stopSync
+  const reportWatchError = error => {
+    const detail = {
+      stage: String(error?.stage || 'unknown'),
+      workoutId: typeof error?.workoutId === 'string' ? error.workoutId : null,
+      reason: String(error?.reason || 'unknown'),
+      ...(error?.message ? { message: String(error.message) } : {}),
+    }
+    try { onWatchError?.(detail) } catch { /* a reporter does not break the sync */ }
+    // A structured outlet for the app's diagnostics even when startWatchSync's caller did not pass
+    // a callback (the workout screen's in-progress start must not be interrupted by a watch error).
+    try { globalThis.dispatchEvent?.(new CustomEvent('opengym:watch-error', { detail })) } catch { /* no DOM events here */ }
+    return detail
+  }
   const send = async () => {
     tm = null
+    if (stopped) return { ok: false, stage: 'snapshot', reason: 'stopped' }
     // Not before the store has its copy: an empty one would tell the watch its workout is over.
-    if (!linked || !storeReady()) return
+    if (!linked) return { ok: false, stage: 'snapshot', reason: 'not_linked' }
+    if (!storeReady()) return { ok: false, stage: 'snapshot', reason: 'store_not_ready' }
+    let snapshotSent = false
     try {
       const S = useStore.getState().S
       const prefs = readWatchPrefs()
@@ -534,57 +711,342 @@ export async function startWatchSync ({ useStore, useUI }) {
       // With Apple Health on: the deleted workouts, so the watch removes the copies it saved.
       if (healthOn) { const gone = healthGoneFor(S); if (gone.length) snap.healthGone = gone }
       // Discarded here: the watch drops its Apple Health workout instead of saving it (#776).
-      const discarded = discardedFor()
+      const conflict = readConflict()
+      const discarded = [...new Set([...discardedFor(), ...abandonedFor(), ...(conflict ? [conflict.wid] : [])])]
       if (discarded.length) snap.discarded = discarded
       const json = JSON.stringify(fitSnapshot(snap))
       if (json !== lastSent) {
         const r = await p.WatchBridge.sendSnapshot({ json })
-        if (r && r.sent) lastSent = json
+        if (!r || r.sent !== true) {
+          const failure = {
+            ok: false,
+            stage: 'snapshot',
+            reason: r?.reason || (r?.error ? 'update_failed' : 'snapshot_not_sent'),
+            ...(r?.error || r?.message ? { message: String(r.error || r.message) } : {}),
+          }
+          reportWatchError(failure)
+          return failure
+        }
+        lastSent = json
+        snapshotSent = true
+        // The native link accepted the snapshot that names the watch's local workout. From now on
+        // its remaining events are obsolete and may be acknowledged on the next drain.
+        if (conflict?.wid) abandonWatchWorkout(conflict.wid)
       }
       // The workout's animations, once per workout and exercise (the native side remembers).
       const clips = prefs.enabled ? clipsFor(S) : []
       const key = S.active ? S.active.id + '|' + clips.map(c => c.exId).join(',') : ''
       if (clips.length && key !== lastClips) {
-        await p.WatchBridge.sendClips({ wid: S.active.id, clips })
-        lastClips = key
+        try {
+          await p.WatchBridge.sendClips({ wid: S.active.id, clips })
+          lastClips = key
+        } catch { /* the snapshot, which starts the workout, already went */ }
       } else if (!S.active && lastClips) {
         // The workout is over: animations still on their way to the watch are not wanted any more.
         lastClips = null
-        await p.WatchBridge.dropClips?.()
+        try { await p.WatchBridge.dropClips?.() } catch { /* no clips to drop */ }
       }
-    } catch { /* no watch, or not now: the next change tries again */ }
+      return { ok: true, stage: 'snapshot', sent: snapshotSent, alreadySent: !snapshotSent }
+    } catch (error) {
+      const failure = { ok: false, stage: 'snapshot', reason: 'send_failed', message: String(error?.message || error || '') }
+      reportWatchError(failure)
+      return failure
+    }
   }
-  const schedule = () => { if (!linked) return; clearTimeout(tm); tm = setTimeout(send, SEND_DEBOUNCE_MS) }
-  const offStore = useStore.subscribe((s, prev) => {
-    // Boot done: what the watch sent meanwhile is applied now, and the watch hears the real state.
-    if (s.ready && !prev.ready) { drainWatchEvents(); schedule() }
-    if (s.S === prev.S) return
+  // All snapshot sends go through one chain. A flush waits for a debounced send already in flight,
+  // then sends the current state itself; startWatchApp runs only after that promise has resolved.
+  const enqueueSend = () => {
+    if (stopped) return Promise.resolve({ ok: false, stage: 'snapshot', reason: 'stopped' })
+    clearTimeout(tm)
+    tm = null
+    const run = sendChain.then(send, send)
+    sendChain = run.catch(error => ({
+      ok: false,
+      stage: 'snapshot',
+      reason: 'send_failed',
+      message: String(error?.message || error || ''),
+    }))
+    return run
+  }
+  const flushSnapshot = async () => {
+    clearTimeout(tm)
+    tm = null
+    await sendChain
+    return enqueueSend()
+  }
+  // Unlike the debounced schedule, this must produce a native send even when the current snapshot
+  // bytes equal lastSent. Concurrent conflict reports share the same attempt.
+  const resendSnapshot = () => {
+    if (forcedResend) return forcedResend
+    forcedResend = (async () => {
+      const state = await checkLink()
+      if (stopped) return { ok: false, stage: 'snapshot', reason: 'stopped' }
+      if (!state.ok) {
+        return { ok: false, stage: 'snapshot', reason: state.reason, ...(state.message ? { message: state.message } : {}) }
+      }
+      lastSent = null
+      return flushSnapshot()
+    })().finally(() => { forcedResend = null })
+    return forcedResend
+  }
+  const schedule = () => { if (stopped || !linked) return; clearTimeout(tm); tm = setTimeout(() => { enqueueSend() }, SEND_DEBOUNCE_MS) }
+
+  // One pending open per workout. Only a native { ok: true } marks its id done; a transient
+  // start_failed is retried on its own, and any failure stays pending for the next
+  // watchState/foreground wake-up, up to a small per-workout budget. The old workout is replaced
+  // if a new one starts before the link recovers, so a stale start cannot open the watch later or
+  // consume the new workout's retries.
+  let pendingOpen = null
+  let openInFlight = null
+  let openAgain = false
+  let openRetryTimer = null
+  const opened = new Set()
+  const openAttempts = new Map()
+  const maxOpenAttempts = 3
+  const clearOpenRetry = () => { if (openRetryTimer != null) { clearTimeout(openRetryTimer); openRetryTimer = null } }
+  const clearPending = id => { if (pendingOpen?.id === id) { pendingOpen = null; clearOpenRetry() } }
+  const retryOpen = id => {
+    clearOpenRetry()
+    if (pendingOpen?.id !== id) return
+    openRetryTimer = setTimeout(() => {
+      openRetryTimer = null
+      if (!stopped && pendingOpen?.id === id) Promise.resolve().then(processPendingOpen)
+    }, OPEN_RETRY_MS)
+  }
+  const openOne = async target => {
+    if (stopped) { clearPending(target.id); return false }
+    if ((openAttempts.get(target.id) || 0) >= maxOpenAttempts) {
+      clearPending(target.id)
+      return false
+    }
+    const state = await checkLink()
+    if (stopped) { clearPending(target.id); return false }
+    if (!state.ok) {
+      if (state.reason !== 'not_activated') reportWatchError({ stage: 'link', workoutId: target.id, reason: state.reason, message: state.message })
+      return false
+    }
+    const current = useStore.getState().S?.active
+    if (!current || current.id !== target.id) {
+      clearPending(target.id)
+      return false
+    }
+    const prefs = readWatchPrefs()
+    if (!prefs.enabled || !prefs.autoShow) {
+      clearPending(target.id)
+      return false
+    }
+    const flushed = await flushSnapshot()
+    if (!flushed.ok) return false
+    // A later state change may have replaced/settled this request while the send was in flight.
+    if (pendingOpen?.id !== target.id || opened.has(target.id)) return false
+    const stillCurrent = useStore.getState().S?.active
+    if (!stillCurrent || stillCurrent.id !== target.id) {
+      clearPending(target.id)
+      return false
+    }
+    // Settings can be switched off while the snapshot is on its way; re-read them at the open.
+    const openingPrefs = readWatchPrefs()
+    if (stopped || !openingPrefs.enabled || !openingPrefs.autoShow) {
+      clearPending(target.id)
+      return false
+    }
+    const attempts = openAttempts.get(target.id) || 0
+    if (attempts >= maxOpenAttempts) {
+      clearPending(target.id)
+      return false
+    }
+    openAttempts.set(target.id, attempts + 1)
+    try {
+      const result = await p.WatchBridge.openOnWatch({
+        type: plannedType(stillCurrent.entries) || undefined,
+      })
+      if (result?.ok !== true) {
+        reportWatchError({
+          stage: 'open',
+          workoutId: target.id,
+          reason: result?.reason || 'start_failed',
+          message: result?.message,
+        })
+        if ((openAttempts.get(target.id) || 0) >= maxOpenAttempts) clearPending(target.id)
+        else if ((result?.reason || 'start_failed') === 'start_failed') retryOpen(target.id)
+        return false
+      }
+    } catch (error) {
+      reportWatchError({
+        stage: 'open',
+        workoutId: target.id,
+        reason: 'native_error',
+        message: String(error?.message || error || ''),
+      })
+      if ((openAttempts.get(target.id) || 0) >= maxOpenAttempts) clearPending(target.id)
+      return false
+    }
+    opened.add(target.id)
+    clearPending(target.id)
+    return true
+  }
+  const processPendingOpen = () => {
+    if (stopped) return Promise.resolve(false)
+    if (openInFlight) {
+      // A wake-up (the link finished activating, the app came forward) while the first attempt is
+      // still waiting must not be lost: run again when that attempt settles, even if it failed.
+      if (pendingOpen) openAgain = true
+      return openInFlight
+    }
+    if (!pendingOpen) return Promise.resolve(true)
+    openInFlight = (async () => {
+      try {
+        while (pendingOpen) {
+          if (stopped) return false
+          const target = pendingOpen
+          if (opened.has(target.id)) { pendingOpen = null; continue }
+          if (!(await openOne(target))) {
+            // A newer workout replaced the request while this attempt was waiting: try that one.
+            if (pendingOpen && pendingOpen.id !== target.id) continue
+            return false
+          }
+        }
+        return true
+      } finally {
+        openInFlight = null
+        if (!stopped && openAgain) { openAgain = false; Promise.resolve().then(processPendingOpen) }
+      }
+    })()
+    return openInFlight
+  }
+  const queueOpen = active => {
+    if (stopped || !storeReady()) return
+    if (!active?.id || opened.has(active.id)) return
+    if (pendingOpen?.id !== active.id) clearOpenRetry()
+    pendingOpen = { id: active.id }
+    if (openInFlight) { openAgain = true; return }
+    Promise.resolve().then(processPendingOpen)
+  }
+  const reconcileLink = async ({ resend = false } = {}) => {
+    if (stopped) return { ok: false, status: null, reason: 'stopped' }
+    if (resend) {
+      const result = await resendSnapshot()
+      if (stopped) return { ok: false, status: null, reason: 'stopped' }
+      if (!result?.ok) return { ok: false, status: null, reason: result?.reason || 'snapshot_not_sent', message: result?.message }
+      await processPendingOpen()
+      return { ok: true }
+    }
+    const state = await checkLink()
+    if (stopped) return { ok: false, status: null, reason: 'stopped' }
+    if (!state.ok) return state
     schedule()
-    // A workout started on the phone: the watch app opens with it (HealthKit's startWatchApp).
-    if (linked && shouldOpenOnWatch(prev.S?.active, s.S?.active)) Promise.resolve().then(() => p.WatchBridge.openOnWatch({ type: plannedType(s.S.active.entries) || undefined })).catch(() => {})
-  })
+    await processPendingOpen()
+    return state
+  }
+  // A failed conflict resend leaves both the marker and the native events in place. Every wake-up
+  // that can restore the link retries it; otherwise an isolated failure would strand the watch.
+  const wake = async () => {
+    if (stopped) return
+    await drainWatchEvents()
+    if (readConflict()) await resendSnapshot()
+    else await reconcileLink()
+  }
+  onStoreChange = (s, prev) => {
+    const hydrated = prev?.ready === false && s.ready === true
+    if (hydrated && pendingOpen) clearPending(pendingOpen.id)
+    // Boot done: what the watch sent meanwhile is applied now, and the watch hears the real state.
+    if (s.ready && !prev.ready) { wake(); schedule() }
+    if (s.S === prev.S) return
+    if (hydrated) { schedule(); return }
+    if (pendingOpen && s.S?.active?.id !== pendingOpen.id) clearPending(pendingOpen.id)
+    schedule()
+    // A workout started on the phone: queue the watch launch even while WCSession is still starting;
+    // the pending open is retried when the link is ready or the app returns to the foreground.
+    if (shouldOpenOnWatch(prev.S?.active, s.S?.active)) queueOpen(s.S.active)
+  }
   // The rest as the watch needs it changes when it starts, stops or is paused, not every second.
   const restOf = t => (t ? `${t.endsAt}|${!!t.paused}|${!!t.ready}` : '')
-  const offUI = useUI.subscribe((s, prev) => { if (s.timer !== prev.timer && restOf(s.timer) !== restOf(prev.timer)) schedule() })
-  const offPrefs = onWatchPrefs(() => schedule())
+  keep(useUI.subscribe((s, prev) => { if (s.timer !== prev.timer && restOf(s.timer) !== restOf(prev.timer)) schedule() }))
+  keep(onWatchPrefs(() => schedule()))
   // The watch speaks the app's language, not its own system's: told again when it changes (the
   // exercise names in the snapshot change with it too).
-  let offLang = () => {}
-  try { offLang = onLangChange(() => schedule()) } catch { /* a test without i18n */ }
-  const sub = await p.WatchBridge.addListener('watchEvent', () => { drainWatchEvents() })
+  try { keep(onLangChange(() => schedule())) } catch { /* a test without i18n */ }
+  const sub = await Promise.resolve(p.WatchBridge.addListener('watchEvent', () => {
+    Promise.resolve(drainWatchEvents()).then(() => { if (readConflict()) resendSnapshot() }).catch(() => {})
+  })).catch(error => {
+    // One listener missing is not a dead link: the queue is still drained on every wake-up.
+    reportWatchError({ stage: 'listener', reason: 'watch_event_listener_failed', message: String(error?.message || error || '') })
+    return null
+  })
+  keep(() => sub?.remove?.())
+  if (stopped) return stopSync
   // The link itself changed (the session finished activating after launch, a watch was paired, the
   // app was installed on it): asked again, and the snapshot sent when there is a watch now.
   // Sent again even when unchanged: a reinstalled watch app starts with nothing.
-  const subLink = await Promise.resolve(p.WatchBridge.addListener('watchState', () => { checkLink().then(() => { lastSent = null; schedule() }) })).catch(() => null)
-  const onVisible = () => { if (document.visibilityState === 'visible') { drainWatchEvents(); checkLink().then(() => schedule()) } }
+  const subLink = await Promise.resolve(p.WatchBridge.addListener('watchState', () => { reconcileLink({ resend: true }) })).catch(() => null)
+  keep(() => subLink?.remove?.())
+  if (stopped) return stopSync
+  const onVisible = () => { if (document.visibilityState === 'visible') wake() }
   document.addEventListener('visibilitychange', onVisible)
+  keep(() => document.removeEventListener('visibilitychange', onVisible))
+  if (MOBILE) {
+    try {
+      const { App } = await import('@capacitor/app')
+      if (stopped) return stopSync
+      const appState = await App.addListener('appStateChange', ({ isActive }) => {
+        if (isActive) wake()
+      })
+      keep(() => appState?.remove?.())
+      if (stopped) return stopSync
+    } catch { /* no Capacitor App plugin: visibilitychange still covers the foreground */ }
+  }
   // Asked once more now that the listeners are there: the link may have come up (watchState) while
   // the first answer above was on its way, and that event had no one to hear it. Without this the
   // watch heard nothing until the app went to the background and came back.
   if (!linked) await checkLink()
+  if (stopped) return stopSync
+  const pendingAtStart = earlyOpen
+  earlyOpen = null
+  if (pendingAtStart && useStore.getState().S?.active?.id === pendingAtStart) queueOpen({ id: pendingAtStart })
   schedule()
   drainWatchEvents()
-  return () => { offStore(); offUI(); offPrefs(); offHealth(); offLang(); sub?.remove?.(); subLink?.remove?.(); document.removeEventListener('visibilitychange', onVisible); clearTimeout(tm) }
+  stopSync = () => {
+    stopped = true
+    onStoreChange = null
+    clearTimeout(tm); clearOpenRetry(); openAgain = false; pendingOpen = null
+    stopResources()
+  }
+  // A forced resend is needed when the watch reports a conflicting start: its local snapshot has
+  // not been confirmed by the phone yet, so the watch must be told which workout is authoritative.
+  stopSync.resendSnapshot = resendSnapshot
+  return stopSync
+}
+
+/**
+ * The app's side of the link in one call: what the queue needs is bound as soon as the link
+ * starts, not after WCSession has activated (or failed to).
+ *
+ * A workout started at the wrist is applied while the first status is still on its way, and a
+ * link that throws while starting cannot leave the watch's ticks unhandled. The stop is returned
+ * immediately, even while the first status is pending, and releases the bound actions with it.
+ */
+export function startWatchLink ({ useStore, useUI, actions = {}, onWatchError = null }) {
+  // Called first: it hands the queue the store's getter before its own first wait, so the drain
+  // in bindWatchAppActions below can apply what the watch sent meanwhile.
+  const lifecycle = new AbortController()
+  let stop = null, stopped = false
+  const starting = startWatchSync({ useStore, useUI, onWatchError, signal: lifecycle.signal })
+  const unbind = bindWatchAppActions({
+    ...actions,
+    // Filled in when the link is up: a conflict found before that stays queued for the next wake.
+    resendSnapshot: (...args) => stop?.resendSnapshot?.(...args),
+  })
+  starting.then(fn => {
+    if (stopped) fn()
+    else stop = fn
+  }).catch(() => { /* the caller's immediate stop still releases the bound actions */ })
+  return () => {
+    if (stopped) return
+    stopped = true
+    lifecycle.abort()
+    stop?.()
+    unbind()
+  }
 }
 
 // Test seams.

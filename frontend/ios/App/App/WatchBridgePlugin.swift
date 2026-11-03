@@ -67,7 +67,7 @@ public class WatchBridgePlugin: CAPPlugin, CAPBridgedPlugin, WCSessionDelegate {
 
     @objc func status(_ call: CAPPluginCall) {
         guard WCSession.isSupported() else {
-            call.resolve(["supported": false, "paired": false, "installed": false, "reachable": false])
+            call.resolve(["supported": false, "activated": false, "paired": false, "installed": false, "reachable": false, "reason": "unsupported"])
             return
         }
         let s = WCSession.default
@@ -80,25 +80,80 @@ public class WatchBridgePlugin: CAPPlugin, CAPBridgedPlugin, WCSessionDelegate {
         ])
     }
 
+    /// Why the WCSession side of the bridge cannot be used yet, in a stable reason vocabulary the
+    /// page can retry and report. `unsupported` is handled before a session exists.
+    private func linkFailureReason(_ session: WCSession) -> String? {
+        if session.activationState != .activated { return "not_activated" }
+        if !session.isPaired { return "not_paired" }
+        if !session.isWatchAppInstalled { return "not_installed" }
+        return nil
+    }
+
+    private func linkFailureMessage(_ reason: String) -> String {
+        switch reason {
+        case "unsupported": return "WatchConnectivity is not supported on this device"
+        case "not_activated": return "The WatchConnectivity session is not activated yet"
+        case "not_paired": return "No Apple Watch is paired"
+        case "not_installed": return "The openGym watch app is not installed"
+        default: return reason
+        }
+    }
+
     /// A workout started on the phone: the watch app opens with it (Settings → Apple Watch, "Open on
     /// the watch"). HealthKit wakes the watch app with the workout's planned type (the page's
     /// `type`, else strength training), and the watch starts its workout session (OpenGymWatchApp's
-    /// delegate). Only with a paired watch that has the app; anything else resolves { ok: false }
-    /// and nothing happens.
+    /// delegate). Anything that prevents the launch resolves { ok: false, reason, message }, so the
+    /// page can keep the open pending and retry when the link is ready.
     @objc func openOnWatch(_ call: CAPPluginCall) {
-        guard WCSession.isSupported(), WCSession.default.activationState == .activated,
-              WCSession.default.isPaired, WCSession.default.isWatchAppInstalled,
-              HKHealthStore.isHealthDataAvailable() else {
-            call.resolve(["ok": false])
+        guard WCSession.isSupported() else {
+            call.resolve(["ok": false, "reason": "unsupported", "message": linkFailureMessage("unsupported")])
             return
         }
-        let config = HKWorkoutConfiguration()
-        // The type the page planned (lib/health-connect.js plannedType, #799): a run opens as a run.
-        config.activityType = AppleHealthPlugin.activityTypes[call.getString("type") ?? ""] ?? .traditionalStrengthTraining
-        config.locationType = .indoor
-        WatchBridgePlugin.health.startWatchApp(with: config) { ok, _ in
-            call.resolve(["ok": ok])
+        let session = WCSession.default
+        let deadline = Date().addingTimeInterval(2)
+
+        // WCSession.activate() finishes asynchronously. If the page calls just after a cold launch,
+        // an immediate isPaired/isWatchAppInstalled read can still be false. Wait briefly for the
+        // activation callback, then startWatchApp exactly once when the link becomes usable.
+        func waitForActivation() {
+            if session.activationState == .activated {
+                if let reason = linkFailureReason(session) {
+                    call.resolve(["ok": false, "reason": reason, "message": linkFailureMessage(reason)])
+                    return
+                }
+                guard HKHealthStore.isHealthDataAvailable() else {
+                    call.resolve(["ok": false, "reason": "health_unavailable", "message": "HealthKit is not available"])
+                    return
+                }
+                let config = HKWorkoutConfiguration()
+                // The type the page planned (lib/health-connect.js plannedType, #799): a run opens as a run.
+                config.activityType = AppleHealthPlugin.activityTypes[call.getString("type") ?? ""] ?? .traditionalStrengthTraining
+                config.locationType = .indoor
+                WatchBridgePlugin.health.startWatchApp(with: config) { ok, error in
+                    if ok {
+                        call.resolve(["ok": true])
+                    } else {
+                        call.resolve([
+                            "ok": false,
+                            "reason": "start_failed",
+                            "message": error?.localizedDescription ?? "HealthKit could not start the watch app",
+                        ])
+                    }
+                }
+                return
+            }
+            if Date() >= deadline {
+                call.resolve([
+                    "ok": false,
+                    "reason": "activation_timeout",
+                    "message": "The WatchConnectivity session did not activate in time",
+                ])
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { waitForActivation() }
         }
+
+        DispatchQueue.main.async { waitForActivation() }
     }
 
     private static let health = HKHealthStore()
@@ -108,10 +163,13 @@ public class WatchBridgePlugin: CAPPlugin, CAPBridgedPlugin, WCSessionDelegate {
             call.reject("json is required")
             return
         }
-        guard WCSession.isSupported() else { call.resolve(["sent": false]); return }
+        guard WCSession.isSupported() else {
+            call.resolve(["sent": false, "reason": "unsupported", "message": linkFailureMessage("unsupported")])
+            return
+        }
         let s = WCSession.default
-        guard s.activationState == .activated, s.isPaired, s.isWatchAppInstalled else {
-            call.resolve(["sent": false])
+        if let reason = linkFailureReason(s) {
+            call.resolve(["sent": false, "reason": reason, "message": linkFailureMessage(reason)])
             return
         }
         // Stamped: iOS does not deliver an application context equal to the last one, and the page
@@ -121,7 +179,7 @@ public class WatchBridgePlugin: CAPPlugin, CAPBridgedPlugin, WCSessionDelegate {
         do {
             try s.updateApplicationContext(payload)
         } catch {
-            call.resolve(["sent": false, "error": error.localizedDescription])
+            call.resolve(["sent": false, "reason": "update_failed", "message": error.localizedDescription])
             return
         }
         if s.isReachable {

@@ -32,6 +32,11 @@
 "More" = "Więcej";
 "Effort" = "Wysiłek";
 "None" = "Brak";
+"Current" = "Bieżące";
+"Pause" = "Wstrzymaj";
+"Paused" = "Wstrzymano";
+"Resume" = "Wznów";
+"Paused with the video" = "Wstrzymano razem z wideo";
 "Last time: %@" = "Ostatnio: %@";
 "No workout running" = "Żaden trening nie trwa";
 "Not synced yet" = "Jeszcze nie zsynchronizowano";

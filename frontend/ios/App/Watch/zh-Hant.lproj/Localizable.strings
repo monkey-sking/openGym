@@ -32,6 +32,11 @@
 "More" = "較多";
 "Effort" = "強度表現";
 "None" = "無";
+"Current" = "進行中";
+"Pause" = "暫停";
+"Paused" = "已暫停";
+"Resume" = "繼續";
+"Paused with the video" = "已隨影片暫停";
 "Last time: %@" = "上次: %@";
 "No workout running" = "沒有進行中的訓練";
 "Not synced yet" = "尚未同步";
@@ -45,7 +50,7 @@
 "Heart rate" = "心率";
 "Hold" = "保持";
 "Stop" = "停止";
-"Start hold" = "開始";
+"Start hold" = "開始計時";
 "Workout saved" = "訓練已儲存";
 "Ended on your iPhone" = "已在 iPhone 上結束";
 "Tap a dot to do a skipped set." = "輕點圓點來做跳過的組。";

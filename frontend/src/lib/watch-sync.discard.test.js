@@ -24,7 +24,7 @@ function store(initial) {
 
 function bridge() {
   return {
-    status: vi.fn(async () => ({ paired: true, installed: true })),
+    status: vi.fn(async () => ({ supported: true, activated: true, paired: true, installed: true })),
     sendSnapshot: vi.fn(async () => ({ sent: true })),
     sendClips: vi.fn(async () => ({})),
     dropClips: vi.fn(async () => ({})),

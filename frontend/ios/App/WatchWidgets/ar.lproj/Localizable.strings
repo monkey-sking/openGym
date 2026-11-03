@@ -32,6 +32,11 @@
 "More" = "أكثر";
 "Effort" = "الجهد";
 "None" = "بدون";
+"Current" = "الحالي";
+"Pause" = "إيقاف مؤقت";
+"Paused" = "متوقف مؤقتًا";
+"Resume" = "استئناف";
+"Paused with the video" = "أُوقف مؤقتاً مع الفيديو";
 "Last time: %@" = "المرة السابقة: %@";
 "No workout running" = "لا يوجد تمرين جارٍ";
 "Not synced yet" = "لم تتم المزامنة بعد";
