@@ -12,6 +12,9 @@ data/
 # Build output / deps
 frontend/dist/
 node_modules/
+frontend/ios/App/WatchCore/.build/
+frontend/public/downloads/
+tools/video-sync-extension/build/
 *.log
 .DS_Store
 node_modules
@@ -34,6 +37,10 @@ frontend/bundle-size.json
 
 # Local planning notes
 docs/superpowers/plans/
+
+# Local validation evidence and development-only credentials
+outputs/
+dev/local-data/
 
 # Python and Kotlin build leftovers (scripts/, the Android build)
 __pycache__/
