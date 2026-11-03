@@ -932,6 +932,47 @@ function livePresence(uid) {
 }
 setInterval(() => { const now = Date.now(); for (const [k, v] of presence) if (!presenceListed(v, now)) presence.delete(k); }, 30000).unref();
 
+/* ---------- desktop video sync (in-memory) ---------- */
+// The workout and a video playing on the computer pause and resume together (docs/dev/VIDEO_SYNC.md).
+// The app posts what happened here; the browser extension holds GET /api/video-sync/stream and
+// drives the tab's <video>; the app polls /api/video-sync/state for what the computer did. Like
+// presence this is ephemeral on purpose: a pause means nothing once the workout ends, so none of
+// it is written to the profile, the backup or the database.
+//
+// `seq` is what makes the two directions safe. Every accepted command gets the next number, and a
+// client only acts on an answer newer than the last one it saw, so a retried POST or a command
+// made during a reconnect cannot replay an old pause onto a workout that has moved on.
+const VIDEO_SYNC_EPOCH = crypto.randomUUID();
+const videoSync = new Map();   // uid -> { seq, action, source, sessionId, videoUrl, play, at, clients: Set<res> }
+const VIDEO_SYNC_ACTIONS = new Set(['start', 'pause', 'resume', 'seek', 'end']);
+const VIDEO_SYNC_KEEP_MS = 12 * 3600000;   // an abandoned desktop cannot grow this Map forever
+function videoSyncOf(uid) {
+  let v = videoSync.get(uid);
+  if (!v) {
+    v = { seq: 0, action: null, source: null, sessionId: null, videoUrl: null, pos: null, offset: 0, force: false, play: null, at: 0, clients: new Set() };
+    videoSync.set(uid, v);
+  }
+  return v;
+}
+const videoSyncState = uid => {
+  const v = videoSync.get(uid);
+  return v
+    ? { epoch: VIDEO_SYNC_EPOCH, seq: v.seq, action: v.action, source: v.source, sessionId: v.sessionId, videoUrl: v.videoUrl || null, pos: v.pos, offset: v.offset, force: v.force === true, play: v.play === true ? true : v.play === false ? false : null, at: v.at, online: v.clients.size > 0 }
+    : { epoch: VIDEO_SYNC_EPOCH, seq: 0, action: null, source: null, sessionId: null, videoUrl: null, pos: null, offset: 0, force: false, play: null, at: 0, online: false };
+};
+function videoSyncBroadcast(uid) {
+  const v = videoSync.get(uid);
+  if (!v || !v.clients.size) return;
+  const line = 'data: ' + JSON.stringify(videoSyncState(uid)) + '\n\n';
+  for (const client of v.clients) {
+    try { client.write(line); } catch { v.clients.delete(client); }
+  }
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [uid, v] of videoSync) if (!v.clients.size && now - v.at > VIDEO_SYNC_KEEP_MS) videoSync.delete(uid);
+}, 600000).unref();
+
 /* ---------- audit log ---------- */
 // Who signed in, who tried and failed, and what an admin changed. One JSON object per line in
 // ./data/audit.log, appended and never rewritten in place. It deliberately does not live in
@@ -2694,6 +2735,101 @@ const routes = {
       if (p && p.hiddenAt === undefined) p.hiddenAt = Date.now();
     } else presence.delete(user.id);
     json(res, 200, { ok: true });
+  },
+
+  /* ---------- desktop video sync ---------- */
+  // A command from either side of the link. `source` says who moved ('app' or 'video'), which is
+  // what lets the other side tell "pause because the athlete asked" from "pause because I asked
+  // it to" and keeps the two from echoing each other.
+  'POST /api/video-sync/command': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    const body = await readBody(req);
+    const action = text(body.action);
+    if (!VIDEO_SYNC_ACTIONS.has(action)) return json(res, 400, { error: 'unknown action' });
+    const source = body.source === 'video' ? 'video' : 'app';
+    const sessionId = text(body.sessionId).slice(0, 80) || null;
+    // Only http(s): the extension matches this against tab URLs and must never be handed
+    // something that reads as another scheme.
+    const rawUrl = text(body.videoUrl).slice(0, 500);
+    const videoUrl = /^https?:\/\//i.test(rawUrl) ? rawUrl : null;
+    // Soft time sync: `pos` is the video's own timeline at the moment of the command (seconds).
+    // A number only — anything else means "no position", the same as the field being absent, so
+    // a hand-edited command cannot seed a seek with NaN. `offset` is the alignment tweak the
+    // athlete set (seconds the computer's video should sit ahead of the workout clock).
+    const v = videoSyncOf(user.id);
+    const pos = Number.isFinite(Number(body.pos)) ? Math.max(0, Math.round(Number(body.pos))) : null;
+    // A browser event carries no offset of its own: keep the alignment the athlete set rather
+    // than resetting it to zero every time the video is paused by hand. An explicit offset
+    // (the app's nudge, including a reset to 0) still wins.
+    const hasOffset = body.offset != null && Number.isFinite(Number(body.offset));
+    const rawOffset = Math.round(Number(body.offset) || 0);
+    const offset = hasOffset ? Math.max(-3600, Math.min(3600, rawOffset)) || 0 : (v.offset || 0);
+    // Forced seeks are how a chapter boundary lands on its exact first frame; without carrying
+    // it the extension falls back to the 5 s soft tolerance and the chapter can start adrift.
+    const force = body.force === true;
+    // A fresh workout starts playback (true), a reload/attach leaves playback alone (null), and
+    // an explicit paused start holds the tab paused (false). Only start carries an intent.
+    const play = action === 'start' && typeof body.play === 'boolean' ? body.play : null;
+    // An app command names the video for its session, including saying it has none: a command
+    // without a URL must not inherit the previous workout's tab. A browser event carries no URL
+    // of its own, so it keeps the one the app named.
+    const nextUrl = action === 'end' ? null
+      : source === 'video' ? (videoUrl || v.videoUrl || null)
+      : (videoUrl || null);
+    // The same command twice is not a new event: a client retrying after a lost answer must not
+    // wake a player that has already stopped, and a duplicate cannot move the workout on either.
+    if (v.action === action && v.sessionId === sessionId && (v.videoUrl || null) === nextUrl
+        && v.pos === pos && v.offset === offset && (v.force === true) === force
+        && v.play === play) return json(res, 200, videoSyncState(user.id));
+    v.seq += 1;
+    v.action = action;
+    v.source = source;
+    v.pos = pos;
+    v.offset = offset;
+    v.force = force;
+    v.play = play;
+    v.at = Date.now();
+    v.videoUrl = nextUrl;
+    // 'end' closes the session: a late resume from a desktop that missed it names no workout, so
+    // the app can drop it instead of resuming whatever came next.
+    v.sessionId = action === 'end' ? null : sessionId;
+    videoSyncBroadcast(user.id);
+    json(res, 200, videoSyncState(user.id));
+  },
+
+  // What the other side last did. The app polls this while a workout runs; a desktop could too,
+  // though the extension uses the stream below.
+  'GET /api/video-sync/state': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    json(res, 200, videoSyncState(user.id));
+  },
+
+  // The extension's side of the link: a Server-Sent Events stream, held open for as long as its
+  // tab is, carrying every command the app makes. `online` in the answers the app polls is this
+  // connection: a workout screen can say whether a computer is actually listening.
+  'GET /api/video-sync/stream': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    const v = videoSyncOf(user.id);
+    // A workout's pause is not a long upload: the socket stays open until one side closes it.
+    req.socket?.setTimeout(0);
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      // nginx buffers a proxied response unless told not to; a buffered stream is no stream.
+      'X-Accel-Buffering': 'no'
+    });
+    res.write('retry: 3000\n\n');
+    res.write('data: ' + JSON.stringify(videoSyncState(user.id)) + '\n\n');
+    v.clients.add(res);
+    const beat = setInterval(() => { try { res.write(': ping\n\n'); } catch { stop(); } }, 20000);
+    beat.unref?.();
+    const stop = () => { clearInterval(beat); v.clients.delete(res); };
+    req.on('close', stop);
+    res.on('close', stop);
   },
 
   /* ---------- admin dashboard ---------- */

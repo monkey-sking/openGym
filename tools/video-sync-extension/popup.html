@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>openGym video sync</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>openGym video sync</h1>
+  <p class="lead">The workout and the follow-along video pause and resume together.</p>
+  <label for="server">Sync Server / Relay Address</label>
+  <input id="server" type="url" placeholder="http://127.0.0.1:8787" autocomplete="off" spellcheck="false">
+  <div class="row">
+    <button id="save" class="primary">Save</button>
+    <button id="retry">Reconnect</button>
+  </div>
+  <p id="status" class="status">Not connected</p>
+  <p id="detail" class="detail"></p>
+  <p id="next" class="next"></p>
+  <div class="help">
+    <strong>If the local relay is off</strong>
+    <ol>
+      <li>In openGym, open <strong>Settings &gt; Video sync</strong> and click <strong>Set up Mac helper</strong>.</li>
+      <li>Open the downloaded app once. It installs itself for this user and stays in the menu bar.</li>
+      <li>Return here and click <strong>Reconnect</strong>.</li>
+    </ol>
+    <p>No Terminal, Node.js, account, or administrator password is needed. macOS may ask once to confirm opening the downloaded app.</p>
+    <p>Chrome extensions cannot start a Mac app by themselves, so the helper has to be opened once.</p>
+    <p>On iPhone, allow Local Network access and enter this Mac's Wi-Fi address under Workout &gt; More &gt; Video sync.</p>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

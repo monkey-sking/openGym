@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "openGym video sync",
+  "version": "1.0.0",
+  "description": "Pause the follow-along video when the workout pauses, and the workout when the video does.",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "cookies", "tabs", "scripting", "alarms"],
+  "host_permissions": [
+    "*://*.bilibili.com/*",
+    "*://*.youtube.com/*",
+    "*://*.vimeo.com/*"
+  ],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.bilibili.com/*",
+        "*://*.youtube.com/*",
+        "*://*.vimeo.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "openGym video sync"
+  }
+}

@@ -159,6 +159,11 @@ tags:
     description: Web Push (VAPID) subscriptions, rest-timer and test pushes
   - name: activity
     description: Live-workout presence heartbeat
+  - name: video-sync
+    description: >-
+      Desktop video sync: the app and the Chrome extension exchange pause, resume
+      and seek commands through an ephemeral per-profile snapshot. Nothing here is
+      persisted, and `online` is the extension's open event stream.
   - name: admin
     description: Admin dashboard. Requires an admin session (`ADMIN_UIDS` or `admin:true`)
   - name: media
@@ -2314,6 +2319,115 @@ paths:
               schema: { $ref: '#/components/schemas/Ok' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /api/video-sync/command:
+    post:
+      tags: [video-sync]
+      operationId: postVideoSyncCommand
+      summary: Send a video-sync command
+      description: |
+        A command from the phone (`source: app`) or from the Chrome extension
+        (`source: video`). Every accepted command gets the next `seq`; the other side
+        ignores anything it has already seen. The same command twice is answered with
+        the same snapshot and does not advance the sequence.
+
+        `videoUrl` travels with `start`. A browser event that names no URL keeps the
+        video the app selected. An app command without a valid URL clears the prior
+        binding, and `end` always clears it. A browser event without `offset` keeps the
+        athlete's current alignment instead of resetting it. `force` asks for an exact seek rather than
+        the extension's 5 s soft-sync tolerance and is how a chapter boundary lands on
+        its first frame. `play` on a `start` is true only for a fresh workout start;
+        a reload or chapter retarget leaves playback alone.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [start, pause, resume, seek, end]
+                source:
+                  type: string
+                  enum: [app, video]
+                  default: app
+                sessionId:
+                  type: string
+                  maxLength: 80
+                  description: The workout session this command belongs to.
+                videoUrl:
+                  type: string
+                  maxLength: 500
+                  description: Only http(s) URLs are stored; anything else is ignored.
+                pos:
+                  type: number
+                  description: The video's own timeline at this moment, in seconds (rounded to a whole second, never negative).
+                offset:
+                  type: number
+                  description: Athlete alignment tweak in seconds, clamped to -3600..3600. Omitted keeps the current value.
+                force:
+                  type: boolean
+                  default: false
+                  description: Seek exactly to `pos`, even when the drift is under 5 s.
+                play:
+                  oneOf: [{ type: boolean }, { type: 'null' }]
+                  default: null
+                  description: "On `start`, the playback intent: true for a fresh workout that should play, false for an explicit paused start, null to retarget the tab and leave playback alone."
+              example:
+                action: seek
+                source: app
+                sessionId: s-42
+                videoUrl: https://www.bilibili.com/video/BV1xx411c7mD/
+                pos: 125
+                offset: -5
+                force: true
+      responses:
+        '200':
+          description: The snapshot after the command (or the unchanged duplicate).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VideoSyncState' }
+        '400':
+          description: Unknown action or malformed JSON body.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/video-sync/state:
+    get:
+      tags: [video-sync]
+      operationId: getVideoSyncState
+      summary: Read the current video-sync snapshot
+      description: The app polls this while a workout runs; `online` is true only while the extension holds the stream open.
+      responses:
+        '200':
+          description: The current per-profile snapshot.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VideoSyncState' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/video-sync/stream:
+    get:
+      tags: [video-sync]
+      operationId: streamVideoSync
+      summary: Stream video-sync snapshots
+      description: >-
+        Server-Sent Events stream held open by the Chrome extension. Each `data:` line
+        is a `VideoSyncState`; comments are heartbeats. Holding this stream is what
+        makes `online` true for the app.
+      responses:
+        '200':
+          description: A `text/event-stream` of `VideoSyncState` JSON frames.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: 'Lines of `data: <VideoSyncState JSON>`.'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
   /api/admin/users:
     get:
       tags: [admin]
@@ -3914,6 +4028,50 @@ components:
         email:
           oneOf: [{ type: string }, { type: 'null' }]
           description: PASSWORD_LOGIN instances only. The e-mail the profile signs in with, if any.
+
+    VideoSyncState:
+      type: object
+      description: The ephemeral desktop video sync snapshot for one profile.
+      required: [epoch, seq, action, source, sessionId, videoUrl, pos, offset, force, play, at, online]
+      properties:
+        epoch:
+          type: string
+          description: Which server or relay process wrote this snapshot. A new epoch means `seq` starts again at 1.
+        seq:
+          type: integer
+          description: Command number within this epoch; a client acts only on a newer one.
+        action:
+          oneOf:
+            - type: string
+              enum: [start, pause, resume, seek, end]
+            - type: 'null'
+        source:
+          oneOf:
+            - type: string
+              enum: [app, video]
+            - type: 'null'
+        sessionId:
+          oneOf: [{ type: string }, { type: 'null' }]
+        videoUrl:
+          oneOf: [{ type: string }, { type: 'null' }]
+        pos:
+          oneOf: [{ type: number }, { type: 'null' }]
+          description: Whole seconds on the video's own timeline, when the command carried one.
+        offset:
+          type: number
+          description: Athlete alignment in seconds (negative means the video stays behind the workout clock).
+        force:
+          type: boolean
+          description: True when the seek must be exact rather than within the 5 s soft tolerance.
+        play:
+          oneOf: [{ type: boolean }, { type: 'null' }]
+          description: The `start` playback intent, or null when the command carried none (including every non-start command).
+        at:
+          type: integer
+          description: When the command was accepted, ms since epoch (0 before any command).
+        online:
+          type: boolean
+          description: The Chrome extension currently holds the event stream.
 
     Presence:
       type: object

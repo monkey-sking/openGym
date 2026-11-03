@@ -61,7 +61,7 @@ test('every tag the spec uses is one the docs generator renders', () => {
   // operation whose first tag is not in it — silently, which is how ten Coach routes went
   // missing from the published page while being perfectly well documented here.
   const docs = read(path.join(ROOT, 'scripts', 'build-api-docs.mjs'));
-  const known = [.../const TAGS = \{([\s\S]*?)\n\}/.exec(docs)[1].matchAll(/^\s{2}(\w+):/gm)].map(m => m[1]);
+  const known = [.../const TAGS = \{([\s\S]*?)\n\}/.exec(docs)[1].matchAll(/^\s{2}['"]?([\w-]+)['"]?:/gm)].map(m => m[1]);
   for (const tag of used) assert.ok(known.includes(tag), `tag "${tag}" renders nowhere — add it to TAGS in scripts/build-api-docs.mjs`);
 });
 
