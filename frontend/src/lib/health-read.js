@@ -21,8 +21,9 @@ export const LB_PER_KG = 2.2046226218
 // Weigh-ins outside this are a typo or another person's profile in the hub, not a body weight.
 const KG_MIN = 20
 const KG_MAX = 400
-// Packages and bundle ids that are openGym: the app, its test build, the Apple Watch app.
-const OWN = /^ch\.duartesantos\.opengym(\.|$)/
+// Packages and bundle ids that are openGym: this build's app (and its test build), its Apple Watch
+// app and widgets, plus the upstream ids, whose records in the hub are openGym's too.
+const OWN = /^(?:com\.7fei\.opengym|ch\.duartesantos\.opengym)(\.|$)/
 
 /** Whether a record in the hub is one openGym wrote itself (by its client id or by its origin). */
 export function isOwnRecord(rec) {

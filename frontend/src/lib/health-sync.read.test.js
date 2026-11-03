@@ -45,7 +45,8 @@ vi.mock('@capacitor/core', () => ({
   }),
 }))
 
-const NOW = Date.UTC(2026, 9, 15, 20, 0, 0)
+// Local noon keeps the ISO date expectations stable in every developer timezone.
+const NOW = new Date(2026, 9, 15, 12, 0, 0).getTime()
 const s = sec => NOW - 3600e3 + sec * 1000
 const dense = (from, to, bpm) => { const out = []; for (let x = from; x <= to; x++) out.push([s(x), bpm]); return out }
 const workout = (id, endSec = 600, extra = {}) => ({ id, d: '2026-10-15', name: 'Push', start: s(0), end: s(endSec), entries: [{ id: '0025', target: { mode: 'reps' }, sets: [{ w: 60, r: 8, done: true, at: s(100) }] }], ...extra })

@@ -9,6 +9,7 @@ import { workoutText } from './workout-text.js'
 import { modeForEntry, hasCompletedWork } from './workout-model.js'
 import { isoOf } from './format.js'
 import { EXIDX } from './exercises.js'
+import { rowLengthMs } from './finish-workout.js'
 
 const LB_PER_KG = 2.2046226218
 // Health Connect refuses a title or notes over 1000 characters (ExerciseSessionRecord).
@@ -30,6 +31,24 @@ const CARDIO_TYPES = {
 }
 export const SESSION_TYPES = ['strength_training', 'walking', 'running', 'biking_stationary', 'biking', 'elliptical', 'stair_climbing_machine',
   'rowing', 'jump_rope', 'hiit', 'mixed_cardio', 'yoga', 'flexibility', 'other_workout']
+
+// ACSM / Compendium of Physical Activities MET values for session energy expenditure estimation
+export const MET_BY_TYPE = {
+  strength_training: 5.0,
+  hiit: 8.0,
+  running: 8.0,
+  biking: 7.0,
+  biking_stationary: 6.8,
+  rowing: 7.0,
+  jump_rope: 10.0,
+  stair_climbing_machine: 9.0,
+  elliptical: 5.0,
+  walking: 3.8,
+  mixed_cardio: 6.0,
+  yoga: 2.8,
+  flexibility: 2.5,
+  other_workout: 5.0,
+}
 
 // Catalogue cardio by its name, first match wins: the treadmill before the bike ("run on treadmill"
 // is filed with the stationary bike), the bike before the run ("assault bike run").
@@ -103,16 +122,55 @@ function sessionNotes(w, opts) {
  * One exercise session per finished workout. A workout with no start or end (or an end not after
  * its start) is left out rather than given made-up times: Health Connect needs both.
  */
-export function sessionRecord(w, { unit, nameOf, speedUnit }) {
+
+/**
+ * Estimates calories (kcal) using standard ACSM formula: MET * weight(kg) * duration(hours).
+ * Returns null if no weight is available or duration <= 0.
+ */
+export function estimateKcal(type, weightKg, durationMs) {
+  const kg = Number(weightKg)
+  const ms = Number(durationMs)
+  if (!(kg > 0) || !(ms > 0)) return null
+  const met = MET_BY_TYPE[type] || MET_BY_TYPE.other_workout
+  const hours = ms / 3600000
+  return Math.round(met * kg * hours * 10) / 10
+}
+
+/**
+ * Builds exercise segments from completed sets with timestamps (s.at).
+ */
+export function workoutSegments(w, nameOf) {
+  const segments = []
+  for (const entry of w?.entries || []) {
+    const name = nameOf ? nameOf(entry) : (entry.n || entry.id)
+    for (const set of entry.sets || []) {
+      if (!hasCompletedWork(set) || !Number.isFinite(set.at)) continue
+      const at = Number(set.at)
+      const durMs = rowLengthMs(set) || 30000
+      const start = durMs > 0 && at >= durMs ? at - durMs : at
+      const end = durMs > 0 && at >= durMs ? at : at + 30000
+      segments.push({ start, end, name: clip(String(name || '').trim()) })
+    }
+  }
+  return segments.sort((a, b) => a.start - b.start)
+}
+
+export function sessionRecord(w, { unit, nameOf, speedUnit, weightKg = null }) {
   const start = Number(w?.start), end = Number(w?.end)
   if (!w?.id || !(start > 0) || !(end > start)) return null
-  return {
+  const type = sessionType(w)
+  const rec = {
     id: 'opengym-w-' + w.id,
     start, end,
-    type: sessionType(w),
+    type,
     title: clip(String(w.name || '').trim()),
     notes: sessionNotes(w, { unit, nameOf, speedUnit }),
   }
+  const kcal = estimateKcal(type, weightKg, end - start)
+  if (kcal != null) rec.kcal = kcal
+  const segments = workoutSegments(w, nameOf)
+  if (segments.length) rec.segments = segments
+  return rec
 }
 
 /**
@@ -136,10 +194,11 @@ function localMorning(iso) {
 }
 
 /** Everything the state has to give Health Connect: { sessions, weights }. */
-export function healthRecords(S, { nameOf, speedUnit }) {
+export function healthRecords(S, { nameOf, speedUnit, weightKg = null }) {
   const unit = S?.unit === 'lb' ? 'lb' : 'kg'
+  const wKg = weightKg != null ? weightKg : (S?.weightKg != null ? S.weightKg : null)
   return {
-    sessions: (S?.workouts || []).map(w => sessionRecord(w, { unit, nameOf, speedUnit })).filter(Boolean),
+    sessions: (S?.workouts || []).map(w => sessionRecord(w, { unit, nameOf, speedUnit, weightKg: wKg })).filter(Boolean),
     // A weigh-in read from the hub (`src`, lib/health-read.js) is already there: never written back.
     weights: (S?.bodyweight || []).filter(b => !b?.src).map(b => weightRecord(b, unit)).filter(Boolean),
   }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { EXIDX } from './exercises.js'
-import { exerciseType, goneIds, healthRecords, planSync, plannedType, recordKey, sessionRecord, sessionType, SESSION_TYPES, TEXT_MAX, weightRecord, writtenIds } from './health-connect.js'
+import { exerciseType, goneIds, healthRecords, planSync, plannedType, recordKey, sessionRecord, sessionType, SESSION_TYPES, TEXT_MAX, weightRecord, writtenIds, estimateKcal, workoutSegments } from './health-connect.js'
 
 // #200: what the Android app writes to Health Connect, worked out from the state alone.
 const nameOf = e => ({ '0025': 'barbell bench press', '3666': 'walking on incline treadmill', '2138': 'stationary bike run v. 3' })[e.id] || e.id
@@ -219,5 +219,48 @@ describe('writtenIds', () => {
   it('lists what this phone wrote, by type', () => {
     expect(writtenIds({ a: { k: 'session', h: '1' }, b: { k: 'weight', h: '2' }, c: { k: 'other' } }))
       .toEqual({ sessions: ['a'], weights: ['b'] })
+  })
+})
+
+
+describe('estimateKcal and workoutSegments', () => {
+  it('estimates kcal based on MET, weight and duration', () => {
+    // 1 hour strength_training (MET 5.0) for 70kg person = 350 kcal
+    expect(estimateKcal('strength_training', 70, 3600000)).toBe(350)
+    // 30 min hiit (MET 8.0) for 60kg person = 240 kcal
+    expect(estimateKcal('hiit', 60, 1800000)).toBe(240)
+    // returns null if weight <= 0 or duration <= 0
+    expect(estimateKcal('strength_training', 0, 3600000)).toBeNull()
+    expect(estimateKcal('strength_training', 70, 0)).toBeNull()
+    expect(estimateKcal('strength_training', null, 3600000)).toBeNull()
+  })
+
+  it('builds segments from completed sets with timestamps', () => {
+    const w = {
+      entries: [
+        { id: '0025', n: 'Bench Press', sets: [{ w: 60, r: 8, done: true, at: 100000, sec: 40 }] },
+        { id: '0027', n: 'Row', sets: [{ w: 50, r: 10, done: true, at: 200000 }] },
+      ]
+    }
+    const segs = workoutSegments(w, e => e.n)
+    expect(segs).toHaveLength(2)
+    expect(segs[0]).toEqual({ start: 60000, end: 100000, name: 'Bench Press' })
+    expect(segs[1]).toEqual({ start: 170000, end: 200000, name: 'Row' })
+  })
+
+  it('includes kcal and segments in sessionRecord when available', () => {
+    const w = {
+      id: 'w_test',
+      start: at(10),
+      end: at(11), // 1 hour
+      name: 'Full Body',
+      entries: [
+        { id: '0025', sets: [{ w: 60, r: 8, done: true, at: at(10, 30), sec: 45 }] }
+      ]
+    }
+    const rec = sessionRecord(w, { unit: 'kg', nameOf: e => 'Bench Press', weightKg: 80 })
+    expect(rec.kcal).toBe(400) // MET 5.0 * 80kg * 1h = 400
+    expect(rec.segments).toHaveLength(1)
+    expect(rec.segments[0].name).toBe('Bench Press')
   })
 })

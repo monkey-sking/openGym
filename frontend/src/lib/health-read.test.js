@@ -17,6 +17,11 @@ const rec = (d, h, kg, extra = {}) => ({ t: at(d, h), kg, id: `r${d}${h}`, origi
 describe('isOwnRecord', () => {
   it('knows openGym by client id and by origin', () => {
     expect(isOwnRecord({ clientId: 'opengym-bw-2026-10-15', origin: 'x' })).toBe(true)
+    expect(isOwnRecord({ origin: 'com.7fei.opengym' })).toBe(true)
+    expect(isOwnRecord({ origin: 'com.7fei.opengym.watchkitapp' })).toBe(true)
+    expect(isOwnRecord({ origin: 'com.7fei.opengym.watchkitapp.widgets' })).toBe(true)
+    expect(isOwnRecord({ origin: 'com.7fei.opengym.test' })).toBe(true)
+    expect(isOwnRecord({ origin: 'com.7fei.opengymx' })).toBe(false)
     expect(isOwnRecord({ origin: 'ch.duartesantos.opengym' })).toBe(true)
     expect(isOwnRecord({ origin: 'ch.duartesantos.opengym.test' })).toBe(true)
     expect(isOwnRecord({ origin: 'ch.duartesantos.opengymx' })).toBe(false)
@@ -90,7 +95,7 @@ describe('mergeWeighIns', () => {
 
   it('skips openGym’s own records and implausible weights', () => {
     const S = { unit: 'kg', bodyweight: [] }
-    mergeWeighIns(S, [rec(14, 7, 80, { clientId: 'opengym-bw-2026-10-14' }), rec(15, 7, 80, { origin: 'ch.duartesantos.opengym' }), rec(16, 7, 5), rec(17, 7, 900)], { src: 'hc' })
+    mergeWeighIns(S, [rec(14, 7, 80, { clientId: 'opengym-bw-2026-10-14' }), rec(15, 7, 80, { origin: 'ch.duartesantos.opengym' }), rec(18, 7, 80, { origin: 'com.7fei.opengym.watchkitapp' }), rec(16, 7, 5), rec(17, 7, 900)], { src: 'hc' })
     expect(S.bodyweight).toEqual([])
   })
 

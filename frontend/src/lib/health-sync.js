@@ -24,6 +24,7 @@ import { healthRecords, planSync, writtenIds, goneIds } from './health-connect.j
 import { exerciseNameFor } from './i18n-core.js'
 import { EXIDX } from './exercises.js'
 import { speedUnitOf } from './speed.js'
+import { lastBW } from './history.js'
 
 export const HEALTH_FILE = 'opengym-health.json'
 const OFF = { on: false, written: {}, at: 0, error: null, readHr: false, readWeight: false, wHistory: false, wCursor: 0, seen: {}, hrTried: {}, readError: null }
@@ -113,7 +114,9 @@ export function syncHealth(S) {
 async function syncOnce(S, h) {
   const p = await plugin()
   if (!p) return h
-  const plan = planSync(healthRecords(S, { nameOf, speedUnit: speedUnitOf(S) }), h.written, goneIds(S))
+    const b = lastBW(S || {})
+  const weightKg = b && Number(b.w) > 0 ? (S?.unit === 'lb' ? Number(b.w) / 2.2046226218 : Number(b.w)) : null
+  const plan = planSync(healthRecords(S, { nameOf, speedUnit: speedUnitOf(S), weightKg }), h.written, goneIds(S))
   const nothing = !plan.sessions.length && !plan.weights.length && !plan.remove.sessions.length && !plan.remove.weights.length
   if (nothing) {
     if (!h.error) return h

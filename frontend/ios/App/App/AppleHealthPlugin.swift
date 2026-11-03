@@ -40,8 +40,9 @@ public class AppleHealthPlugin: CAPPlugin, CAPBridgedPlugin {
     static let enabledKey = "healthEnabled"
     private let store = HKHealthStore()
     private var bodyMass: HKQuantityType { HKQuantityType.quantityType(forIdentifier: .bodyMass)! }
+    private var energyBurned: HKQuantityType { HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned)! }
 
-    private var shareTypes: Set<HKSampleType> { [HKObjectType.workoutType(), bodyMass] }
+    private var shareTypes: Set<HKSampleType> { [HKObjectType.workoutType(), bodyMass, energyBurned] }
     private var readTypes: Set<HKObjectType> {
         var types: Set<HKObjectType> = [HKObjectType.workoutType(), bodyMass]
         if let hr = HKObjectType.quantityType(forIdentifier: .heartRate) { types.insert(hr) }
@@ -197,6 +198,32 @@ public class AppleHealthPlugin: CAPPlugin, CAPBridgedPlugin {
         var meta = syncMetadata(id)
         if let title = s["title"] as? String, !title.isEmpty { meta["OpenGymTitle"] = title }
         try await builder.addMetadata(meta)
+
+        // Estimated energy burned (active calories)
+        if let kcal = (s["kcal"] as? NSNumber)?.doubleValue, kcal > 0 {
+            let sample = HKQuantitySample(type: energyBurned, quantity: HKQuantity(unit: .kilocalorie(), doubleValue: kcal), start: start, end: end)
+            try await builder.addSamples([sample])
+        }
+
+        // Workout movement segments
+        if let segs = s["segments"] as? [[String: Any]], !segs.isEmpty {
+            var events: [HKWorkoutEvent] = []
+            for seg in segs {
+                guard let sMs = (seg["start"] as? NSNumber)?.doubleValue,
+                      let eMs = (seg["end"] as? NSNumber)?.doubleValue, eMs > sMs else { continue }
+                let segStart = Date(timeIntervalSince1970: sMs / 1000)
+                let segEnd = Date(timeIntervalSince1970: eMs / 1000)
+                var segMeta: [String: Any] = [:]
+                if let name = seg["name"] as? String, !name.isEmpty {
+                    segMeta[HKMetadataKeyWorkoutBrandName] = name
+                }
+                events.append(HKWorkoutEvent(type: .segment, dateInterval: DateInterval(start: segStart, end: segEnd), metadata: segMeta.isEmpty ? nil : segMeta))
+            }
+            if !events.isEmpty {
+                try await builder.addWorkoutEvents(events)
+            }
+        }
+
         try await builder.endCollection(at: end)
         _ = try await builder.finishWorkout()
     }
