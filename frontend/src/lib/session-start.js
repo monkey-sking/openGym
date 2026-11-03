@@ -146,6 +146,8 @@ export function buildSessionEntries(st, r) {
   const noProg = r?.excludeFromProgression === true
   return (r ? r.ex : []).map(cfg => {
     const built = buildPlannedEntry(st, cfg, r, { noProg })
-    return { id: cfg.id, sg: cfg.sg, ...built, ...(noProg ? { noProg: true } : {}) }
+    // The source video rides on the entry, not only on the routine's config: a mapped chapter
+    // can change its catalogue id or its target without losing the video the athlete followed.
+    return { id: cfg.id, sg: cfg.sg, ...(cfg.videoUrl ? { videoUrl: cfg.videoUrl } : {}), ...built, ...(noProg ? { noProg: true } : {}) }
   })
 }

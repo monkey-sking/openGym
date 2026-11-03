@@ -110,6 +110,16 @@ describe('what survives a shared plan', () => {
     expect(roundTrip({ restSec: 180 }).restSec).toBe(180)
   })
 
+  // A follow-along block names the video even when its chapter maps to a catalogue exercise:
+  // the source link is what the video sync uses to choose the tab, not the catalogue's demo.
+  it('carries the source video URL on a block, and drops one that is not a URL', () => {
+    const url = 'https://www.bilibili.com/video/BV1xx411c7mD/'
+    expect(roundTrip({ mode: 'time', sec: 60, vstart: 12, videoUrl: url }))
+      .toMatchObject({ vstart: 12, videoUrl: url })
+    const handEdited = { opengym_plan: 1, routines: [{ id: 'r', name: 'R', ex: [{ id: '0025', sets: 1, reps: 5, videoUrl: 'javascript:alert(1)' }] }], week: {}, customEx: [] }
+    expect('videoUrl' in parsePlan(handEdited).routines[0].ex[0]).toBe(false)
+  })
+
   // Discord (lajawi): an exercise's own "No timer" is part of the prescription too.
   it('carries an exercise’s "No timer", and only a real one', () => {
     expect(roundTrip({ restOff: true })).toMatchObject({ restOff: true })
@@ -348,6 +358,28 @@ describe('custom exercises in a shared plan', () => {
     mergePlan(target, parsed)
     expect(target.customEx).toEqual([mine])
     expect(target.routines[0].ex[0].id).toBe('mine')
+  })
+
+  it('never reuses a chapter from another video under the same label, but does reuse the same link', () => {
+    const video = url => ({
+      opengym_plan: 1,
+      routines: [{ id: 'r', name: 'Video', ex: [{ id: 'x', sets: 1, mode: 'time', sec: 60 }] }],
+      customEx: [{ id: 'x', n: '1/5 片头', bp: 'cardio', url }]
+    })
+    const first = 'https://www.bilibili.com/video/BV1aa41111aa/'
+    const second = 'https://www.bilibili.com/video/BV1bb42222bb/'
+    const target = { routines: [], week: {}, customEx: [] }
+
+    mergePlan(target, parsePlan(video(first)))
+    mergePlan(target, parsePlan(video(second)))
+
+    expect(target.customEx).toHaveLength(2)
+    expect(target.customEx.map(c => c.url)).toEqual([first, second])
+    expect(target.routines[1].ex[0].id).toBe(target.customEx[1].id)
+
+    mergePlan(target, parsePlan(video(first)))
+    expect(target.customEx).toHaveLength(2)
+    expect(target.routines[2].ex[0].id).toBe(target.customEx[0].id)
   })
 })
 

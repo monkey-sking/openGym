@@ -6,7 +6,7 @@ import { DAYN, DAYS, weekOrder, weekStartOf, uid, exCount, routineCount, todayIS
 import { t } from '../lib/i18n.js'
 import {
   dayAssignSheet, starterPlanSheet, confirmSheet, menuSheet,
-  planHasRoutines, exportPlanFile, printWholePlan, importPlanFile,
+  planHasRoutines, exportPlanFile, printWholePlan, importPlanFile, videoPlanSheet,
 } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import { SeasonDeco } from '../components/Seasonal.jsx'
@@ -159,6 +159,10 @@ export default function Plan() {
         { icon: 'share', label: t('Export plan file'), sub: t('A small file a friend can import into their own openGym. Routines only, none of your workouts or weigh-ins.'), disabled: !has, onClick: exportPlanFile },
         { icon: 'note', label: t('Print / Save as PDF'), disabled: !has, onClick: printWholePlan },
         { icon: 'download', label: t('Import a plan file'), onClick: () => fileRef.current?.click() },
+        // Only where reading the video can work: the phone app reaches Bilibili through native
+        // HTTP, while a browser cannot (lib/video-plan.js says why), so the web build — the demo
+        // site included — is not offered an entry that would only ever fail.
+        ...(MOBILE ? [{ icon: 'play', label: t('Add a routine from a video'), sub: t('Paste a Bilibili link. Its chapters become the routine.'), onClick: videoPlanSheet }] : []),
         { icon: 'clipboard', label: t('Load starter plan'), onClick: starterPlanSheet },
       ],
     })

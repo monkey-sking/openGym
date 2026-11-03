@@ -146,6 +146,11 @@ function cleanEx(e) {
     if (rest) o.sgRest = rest
   }
   if (e.note) o.note = e.note
+  if (typeof e.vstart === 'number' && Number.isFinite(e.vstart) && e.vstart >= 0) o.vstart = e.vstart
+  // The video a follow-along block belongs to (lib/video-plan.js). It is separate from the
+  // custom exercise's link so a chapter mapped to the catalogue still keeps the source video.
+  const videoUrl = cleanUrl(e.videoUrl)
+  if (videoUrl) o.videoUrl = videoUrl
   const warm = cleanWarmupSets(e.warmupSets)
   if (warm) o.warmupSets = warm
   // Drop-sets and rest-pause are part of how the exercise is prescribed, not a logging detail.
@@ -283,6 +288,7 @@ export function parsePlan(raw, destinationUnit = 'kg') {
       const sideRest = cleanRestSec(e.sideRestSec)
       const sideOff = !!e.side && e.sideRestOff === true
       const incline = clampIncline(e.incline)
+      const videoUrl = cleanUrl(e.videoUrl)
       // Planned substitutes: the catalogue's only, as they are exported.
       const subs = cleanBackups(Array.isArray(e.subs) ? e.subs.map(x => (typeof x === 'string' ? canonicalExId(x) : x)) : [], known.has(e.id) ? e.id : canonicalExId(e.id), x => !known.has(x) && !!EXIDX[x] && !isCustomEx(EXIDX[x]))
       // Superset meta only means something on a member of a superset; on a lone exercise it is dropped.
@@ -291,9 +297,9 @@ export function parsePlan(raw, destinationUnit = 'kg') {
       const pyramid = normalizePyramid(e.pyramid)
       const pyramidRest = pyramid.length ? normalizePyramidRest(e.pyramidRest, pyramid.length) : []
       const pyramidWeight = pyramid.length ? normalizePyramidWeight(e.pyramidWeight, pyramid.length) : []
-      const { warmupSets, intensifier, restSec, restOff: _restOff, warmupRestSec, warmupRestOff: _warmOff, sideRestSec: _sideRest, sideRestOff: _sideOff, subs: _subs, pyramid: _pyramid, pyramidRest: _pyramidRest, pyramidWeight: _pyramidWeight, sgName: _sgName, sgRest: _sgRest, incline: _incline, ...passthrough } = e
+      const { warmupSets, intensifier, restSec, restOff: _restOff, warmupRestSec, warmupRestOff: _warmOff, sideRestSec: _sideRest, sideRestOff: _sideOff, subs: _subs, pyramid: _pyramid, pyramidRest: _pyramidRest, pyramidWeight: _pyramidWeight, sgName: _sgName, sgRest: _sgRest, incline: _incline, videoUrl: _videoUrl, ...passthrough } = e
       if (!known.has(passthrough.id)) passthrough.id = canonicalExId(passthrough.id)
-      return convertedExercise({ ...passthrough, ...(pyramid.length ? { pyramid } : {}), ...(pyramidRest.length ? { pyramidRest } : {}), ...(pyramidWeight.length ? { pyramidWeight } : {}), ...(warm ? { warmupSets: warm } : {}), ...(intens ? { intensifier: intens } : {}), ...(rest ? { restSec: rest } : restOff ? { restOff: true } : {}), ...(warmOff ? { warmupRestOff: true } : warmRest ? { warmupRestSec: warmRest } : {}), ...(sideOff ? { sideRestOff: true } : sideRest ? { sideRestSec: sideRest } : {}), ...(subs.length ? { subs } : {}), ...(sgName ? { sgName } : {}), ...(sgRest ? { sgRest } : {}), ...(incline > 0 ? { incline } : {}) }, sourceUnit || destination, destination)
+      return convertedExercise({ ...passthrough, ...(pyramid.length ? { pyramid } : {}), ...(pyramidRest.length ? { pyramidRest } : {}), ...(pyramidWeight.length ? { pyramidWeight } : {}), ...(warm ? { warmupSets: warm } : {}), ...(intens ? { intensifier: intens } : {}), ...(rest ? { restSec: rest } : restOff ? { restOff: true } : {}), ...(warmOff ? { warmupRestOff: true } : warmRest ? { warmupRestSec: warmRest } : {}), ...(sideOff ? { sideRestOff: true } : sideRest ? { sideRestSec: sideRest } : {}), ...(subs.length ? { subs } : {}), ...(sgName ? { sgName } : {}), ...(sgRest ? { sgRest } : {}), ...(incline > 0 ? { incline } : {}), ...(videoUrl ? { videoUrl } : {}) }, sourceUnit || destination, destination)
     })
   }))
   return {
@@ -326,8 +332,15 @@ export function mergePlan(s, bundle, { schedule } = {}) {
   const source = convertedBundle(bundle, destination)
   s.customEx = s.customEx || []
   const exIdMap = {}
+  const linkOf = c => cleanUrl(c && c.url)
   ;(source.customEx || []).forEach(c => {
-    const same = s.customEx.find(x => (x.n || '').toLowerCase() === (c.n || '').toLowerCase() && x.bp === c.bp)
+    // Same name and body part is the same exercise, unless the two carry different links: two
+    // videos can both have a chapter called "1/5 片头" and a custom exercise must not steal the
+    // other video's link just because the words match (lib/video-plan.js numbers them anyway,
+    // but an older or hand-written plan may not). A missing link is not evidence either way, so
+    // it keeps the existing name-and-body-part reuse.
+    const same = s.customEx.find(x => (x.n || '').toLowerCase() === (c.n || '').toLowerCase() && x.bp === c.bp &&
+      !(linkOf(x) && linkOf(c) && linkOf(x) !== linkOf(c)))
     if (same) { exIdMap[c.id] = same.id; return }
     const nid = uid()
     exIdMap[c.id] = nid
