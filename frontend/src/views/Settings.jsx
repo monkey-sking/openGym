@@ -52,9 +52,11 @@ import { usePasskeys, PasskeysRow, DeviceLinkRow, openDeviceLinkRedeem, PairShee
 import { DeleteAccountRow } from '../components/DeleteAccount.jsx'
 import { Section, Row, SelectRow, Switch, Segmented, Button, TextField, SearchField } from '../components/ui.jsx'
 import { PAGES, ROOT_GROUPS, pageVisible, searchSettings, pageTrail } from './settings-pages.js'
+import { readVideoSyncServer } from '../lib/video-sync.js'
 import { platformNow } from '../lib/platform-now.js'
 import { pathBefore } from '../lib/nav.js'
 import WatchSettingsPage from './WatchSettings.jsx'
+import VideoSyncSettingsPage from './VideoSyncSettings.jsx'
 import { reportSheet } from '../components/ReportSheet.jsx'
 import { csvExportSheet } from '../components/CsvExportSheet.jsx'
 import GymReminderPage, { GymEditPage } from './GymReminder.jsx'
@@ -453,6 +455,7 @@ export default function Settings({ page = null, find = null, via = null, entryKe
     data: () => '',
     about: () => 'v' + __APP_VERSION__,
     watch: () => '',
+    'video-sync': () => (readVideoSyncServer() ? t('Relay set') : t('Not configured')),
   }
 
   const open = id => {
@@ -506,6 +509,7 @@ export default function Settings({ page = null, find = null, via = null, entryKe
 
   const pages = {
     watch: () => <WatchSettingsPage />,
+    'video-sync': () => <VideoSyncSettingsPage />,
     gym: () => <GymReminderPage />,
     'gym-edit': () => <GymEditPage />,
     workout: () => <>
@@ -553,6 +557,15 @@ export default function Settings({ page = null, find = null, via = null, entryKe
           subtitle={t('In Cards and Focus, Prev and Next hop over a finished exercise.')}>
           <Switch aria-label={t('Skip completed exercises')} checked={S.skipCompleted === true}
             onChange={v => update(s => { if (v) s.skipCompleted = true; else delete s.skipCompleted })} />
+        </Row>
+        {/* The hands-free chain: Cards and Focus already bring the next exercise up by themselves
+            once a timed one's rest runs out (#532); this starts it too, so a session of timed
+            blocks needs nothing but its first play button. Opt-in, and only a timer that is
+            actually going to run — anything you do first still wins (views/Workout.jsx). */}
+        <Row icon="play" iconTint="var(--green)" title={t('Start the next exercise by itself')}
+          subtitle={t('In Cards and Focus, a timed exercise starts itself when the rest before it runs out.')}>
+          <Switch aria-label={t('Start the next exercise by itself')} checked={S.autoStartNext === true}
+            onChange={v => update(s => { if (v) s.autoStartNext = true; else delete s.autoStartNext })} />
         </Row>
       </Section>
       <Section title={t('Before and during')}>

@@ -37,6 +37,9 @@ export async function nativeFetch(url, init = {}) {
   return {
     ok: res.status >= 200 && res.status < 300,
     status: res.status,
+    // Where the request ended up, after any redirect: a b23.tv short link only says which video
+    // it points at here (lib/video-plan.js). The WebView's own fetch exposes the same thing.
+    url: res.url,
     text: async () => text,
     json: async () => JSON.parse(text)
   }

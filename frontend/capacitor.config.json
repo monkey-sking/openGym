@@ -1,6 +1,6 @@
 {
-  "appId": "ch.duartesantos.opengym",
-  "appName": "openGym",
+  "appId": "com.7fei.opengym",
+  "appName": "openGym 跟练",
   "webDir": "dist",
   "backgroundColor": "#0c0e12",
   "android": {

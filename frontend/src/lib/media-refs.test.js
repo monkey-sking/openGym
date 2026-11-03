@@ -143,12 +143,13 @@ describe('cleanUrl', () => {
 
 describe('linkKind', () => {
   it('calls the big video sites video, their subdomains included, and everything else a link', () => {
-    for (const u of ['https://www.youtube.com/watch?v=x', 'youtu.be/x', 'https://m.youtube.com/shorts/x', 'https://vimeo.com/1', 'https://www.tiktok.com/@a/video/1', 'https://www.instagram.com/reel/x']) {
+    for (const u of ['https://www.youtube.com/watch?v=x', 'youtu.be/x', 'https://m.youtube.com/shorts/x', 'https://vimeo.com/1', 'https://www.tiktok.com/@a/video/1', 'https://www.instagram.com/reel/x', 'https://www.bilibili.com/video/BV1De4y1D7am/', 'https://b23.tv/AbCdEfG']) {
       expect(linkKind(u), u).toBe('video')
     }
     expect(linkKind('https://exrx.net/WeightExercises')).toBe('link')
     expect(linkKind('https://notyoutube.com/x')).toBe('link')
     expect(linkKind('https://youtube.com.evil.example/x')).toBe('link')
+    expect(linkKind('https://bilibili.com.evil.example/x')).toBe('link')
     expect(linkKind('javascript:alert(1)')).toBeNull()
   })
 })

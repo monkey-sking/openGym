@@ -1670,6 +1670,18 @@ export const PT_BR_OVERRIDES = {
   'App icon': 'Ícone do app',
   'Just for this phone. Some home screens take a moment to catch up.': 'Só para este celular. Algumas telas iniciais demoram um pouco para perceber.',
   'Try the Halloween app icon': 'Experimente o ícone de Halloween do app',
+  // --- Plan → a routine out of a video (Bilibili chapters) ---
+  'Paste a Bilibili link. Its chapters become the routine.': 'Cole um link do Bilibili. Os capítulos dele passam a ser a rotina.',
+  'Paste a Bilibili link. The video’s own chapters become one timed block each — the video’s order, the video’s seconds.': 'Cole um link do Bilibili. Os capítulos do próprio vídeo viram um bloco cronometrado cada, na ordem e com os segundos do vídeo.',
+  'Paste the video’s link first.': 'Cole o link do vídeo primeiro.',
+  'Reading the video…': 'Lendo o vídeo…',
+  'Couldn’t read that video. Try again.': 'Não foi possível ler esse vídeo. Tente de novo.',
+  'Couldn’t reach Bilibili. Check the connection and try again.': 'Não foi possível acessar o Bilibili. Verifique a conexão e tente de novo.',
+  'Bilibili refused that request. Wait a moment, then try again.': 'O Bilibili recusou esse pedido. Espere um momento e tente de novo.',
+  'Bilibili doesn’t have that video. Check the link.': 'O Bilibili não tem esse vídeo. Verifique o link.',
+  'That isn’t a Bilibili video link. Paste a bilibili.com/video/BV… link.': 'Isso não é um link de vídeo do Bilibili. Cole um link bilibili.com/video/BV…',
+  // --- Settings → Video sync (phone + computer browser) ---
+  'Connect your computer Chrome browser on the same Wi-Fi network without any server account.': 'Conecte o navegador Chrome do computador à mesma rede Wi-Fi, sem nenhuma conta de servidor.',
 }
 
 export default { ...pt, ...PT_BR_OVERRIDES }

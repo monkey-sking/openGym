@@ -83,7 +83,9 @@ describe('iOS alternate icons', () => {
 
   it('every App build configuration names all alternate icon sets', () => {
     const names = [...pbx.matchAll(/ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "([^"]*)";/g)].map(m => m[1].split(' '))
-    expect(names.length).toBe((pbx.match(/ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;/g) || []).length)
+    // The Watch app and widgets also set an AppIcon, but alternate iOS icons only apply here.
+    const appConfigs = pbx.match(/INFOPLIST_FILE = App\/Info\.plist;/g) || []
+    expect(names.length).toBe(appConfigs.length)
     for (const n of names) expect(n).toEqual(ALT.map(v => v.ios))
     expect(names[0]).toContain('AppIcon-Halloween')
   })

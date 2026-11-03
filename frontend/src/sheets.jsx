@@ -37,6 +37,7 @@ import { exerciseMuscleSnapshot, loadOfWorkouts, MUSCLES, MUSCLE_NAME, muscleWei
 import { parseImport, mergeImport } from './lib/import-csv.js'
 import { importHevyData, HevyApiError, HEVY_DEV_SETTINGS, mergeHevyRoutines, hevySummaryCounts } from './lib/import-hevy.js'
 import { buildPlanBundle, parsePlan, mergePlan, printPlan, planPrintHTML } from './lib/plan-share.js'
+import { readVideo, videoPlanBundle, clock, chapterLabel, VideoLinkError } from './lib/video-plan.js'
 import { printOptions } from './lib/print-doc.js'
 import { printWorkout } from './lib/report-print.js'
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP, formulaOf, FORMULA_NAMES } from './lib/onerm.js'
@@ -2545,6 +2546,97 @@ function PlanImport({ bundle, close }) {
   </>
 }
 
+/* ============================ a routine out of a video ============================ */
+// The way in from Plan. A follow-along video becomes a routine with one timed block per
+// chapter of the video, so the phone's timer walks the video's own timeline instead of a plan
+// somebody wrote by hand. What it does with the link, and why the phone has to read it through
+// native HTTP, is lib/video-plan.js.
+export const videoPlanSheet = () => ui().openSheet(close => <VideoPlanSheet close={close} />)
+
+function VideoPlanSheet({ close }) {
+  const unit = useStore(s => s.S.unit)
+  const [link, setLink] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [video, setVideo] = useState(null)
+
+  const read = async () => {
+    const raw = link.trim()
+    if (!raw) { toast(t('Paste the video’s link first.')); return }
+    setBusy(true)
+    setVideo(null)
+    try {
+      setVideo(await readVideo(raw))
+    } catch (e) {
+      // Every answer the reader can give is already a sentence for the person reading it; only
+      // an unexpected failure falls back to the generic one.
+      toast(e instanceof VideoLinkError ? e.message : t('Couldn’t read that video. Try again.'))
+    } finally { setBusy(false) }
+  }
+
+  // Out of this sheet and into the ordinary one: the counts, "Add to my plan" and the safety
+  // note are the same for a routine that came from a file and one that came from a video.
+  const useIt = () => {
+    const bundle = videoPlanBundle(video, { unit: unit || 'kg' })
+    close()
+    planImportSheet(parsePlan(bundle, unit || 'kg'))
+  }
+
+  if (!video) return <>
+    <h3>{t('Add a routine from a video')}</h3>
+    <div className="muted small" style={{ marginBottom: 14, lineHeight: 1.5 }}>
+      {t('Paste a Bilibili link. The video’s own chapters become one timed block each — the video’s order, the video’s seconds.')}
+    </div>
+    <label className="small dim" style={{ display: 'block', marginBottom: 6 }}>{t('Video link')}</label>
+    <TextField
+      type="url"
+      inputMode="url"
+      autoComplete="off"
+      spellCheck={false}
+      placeholder="https://www.bilibili.com/video/BV…"
+      value={link}
+      disabled={busy}
+      onChange={e => setLink(e.target.value)}
+      onKeyDown={e => { if (e.key === 'Enter' && !busy) read() }}
+    />
+    <div style={{ height: 14 }} />
+    <Button variant="primary" icon="play" onClick={read} disabled={busy || !link.trim()}>
+      {busy ? t('Reading the video…') : t('Read the video')}
+    </Button>
+    <div style={{ height: 8 }} />
+    <Button variant="ghost" className="dim" onClick={close} disabled={busy}>{t('Cancel')}</Button>
+  </>
+
+  const count = video.chapters.length
+  return <>
+    <h3>{video.title || video.bvid}</h3>
+    <div className="muted small" style={{ marginBottom: 12 }}>
+      {video.uploader}
+      {' · ' + clock(video.sec)}
+      {count > 1 ? ' · ' + tn('{0} chapter', '{0} chapters', count) : ''}
+    </div>
+    {count === 0 && <div className="small" style={{ color: 'var(--yellow)', marginBottom: 12, lineHeight: 1.45 }}>
+      {t('This video has no chapters of its own, so it arrives as one block as long as the video.')}
+    </div>}
+    {video.part && <div className="dim small" style={{ marginBottom: 12, lineHeight: 1.45 }}>
+      {t('This video has more than one part. openGym read part 1 ({0}) and its chapters.', video.part)}
+    </div>}
+    <div style={{ marginBottom: 16 }}>
+      {video.chapters.map((c, i) => (
+        <div className="item" key={i}>
+          <span className="lrow-i"><Icon name="timer" /></span>
+          <div className="grow">
+            <div className="tt">{chapterLabel(c, i, count)}</div>
+            <div className="ss">{clock(c.start) + '–' + clock(c.end)}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+    <Button variant="primary" onClick={useIt}>{t('Continue')}</Button>
+    <div style={{ height: 8 }} />
+    <Button variant="ghost" className="dim" onClick={close}>{t('Cancel')}</Button>
+  </>
+}
+
 /* ============================ day override / assign ============================ */
 function DayOverride({ iso, close }) {
   const st = useStore(s => s.S)
@@ -3764,6 +3856,10 @@ function doFinishWorkout() {
   // Read before the session is gone: the summary offers these to their routines (#592).
   const additions = past ? [] : routineAdditions(A, st.routines)
   let shown = w
+  // Tell the computer before the session disappears: the subscription that sees `active` become
+  // null cannot name the workout that just ended. The guard inside video sync makes this and that
+  // path send one `end`, never two.
+  useUI.getState().videoSync?.end?.(A.id)
   update(s => {
     if (past) {
       // Its start and end are in the past; the stamp says when it was logged, which is what a

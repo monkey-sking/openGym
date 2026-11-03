@@ -18,7 +18,8 @@ import { setSystemBarsLight } from './lib/system-bars.js'
 import { initBackButton } from './lib/back.js'
 import { installEdgeSwipeBack, BACK_PREVIEW_EVENT } from './lib/edge-swipe-back.js'
 import { pageMotion } from './lib/page-motion.js'
-import { startWatchSync, bindWatchAppActions, patchSetIn } from './lib/watch-sync.js'
+import { startWatchLink, patchSetIn } from './lib/watch-sync.js'
+import { startVideoSync } from './lib/video-sync.js'
 import { stampWorkout } from './lib/sync-merge.js'
 import { logWeighIn } from './lib/bodyweight.js'
 import { startWidgetSync } from './lib/widgets.js'
@@ -28,7 +29,9 @@ import { installViewportGuard } from './lib/viewport-guard.js'
 import { installChipDrag } from './lib/hchips.js'
 import { syncPushSubscription } from './lib/push.js'
 import { MOBILE, nativePlatform } from './lib/mobile.js'
-import { exitWorkoutEdit, startFlow, beginWorkout } from './sheets.jsx'
+import { exitWorkoutEdit, startFlow, beginWorkout, planImportSheet } from './sheets.jsx'
+import { startPlanFileInbox } from './lib/plan-file-open.js'
+import { t } from './lib/i18n-core.js'
 import Icon from './components/Icon.jsx'
 import TabBar from './components/TabBar.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
@@ -127,6 +130,22 @@ function Shell() {
   const isGuest = useStore(s => s.isGuest())
   const needsMobileOnboarding = useStore(s => s.needsMobileOnboarding)
   const permSteps = useStore(s => s.permSteps)
+  useEffect(() => {
+    if (!MOBILE || !ready || !(user || isGuest) || needsMobileOnboarding || permSteps) return
+    let disposed = false, stop
+    void nativePlatform().then(async platform => {
+      if (platform !== 'ios' || disposed) return
+      const { registerPlugin } = await import('@capacitor/core')
+      if (disposed) return
+      stop = startPlanFileInbox({
+        plugin: registerPlugin('PlanFileImport'), ui: useUI,
+        unit: () => useStore.getState().S.unit || 'kg', show: planImportSheet,
+        unreadable: e => useUI.getState().toast(e?.code === 'not-plan'
+          ? t('Import failed: {0}', e.message) : t('Couldn’t read that file.')),
+      })
+    }).catch(() => {})
+    return () => { disposed = true; stop?.() }
+  }, [ready, !!user, isGuest, needsMobileOnboarding, permSteps])
   const langV = useLang()   // re-renders the whole shell when the language (pack) changes
   useEffect(() => { setNav(navigate) }, [navigate])
   const lastEditPath = useRef(loc.pathname)
@@ -386,28 +405,38 @@ export default function App() {
   }, [])
   // iOS: swipe from the left edge for the page's own back button (lib/edge-swipe-back.js)
   useEffect(() => installEdgeSwipeBack(), [])
+  // The video playing on the computer pauses and resumes with the workout (lib/video-sync.js,
+  // tools/video-sync-extension). Everywhere: a phone in the gym can pause the video on the desk,
+  // and the browser can pause the session when the video stops. No-op while nothing runs.
+  useEffect(() => {
+    let stop = null, gone = false
+    startVideoSync({ useStore, useUI }).then(fn => { if (gone) fn(); else stop = fn }).catch(() => {})
+    return () => { gone = true; stop?.() }
+  }, [])
   // iPhone app with an Apple Watch: the running workout goes to the watch, its ticks come back
   // (lib/watch-sync.js). Nothing at all on the web, on Android, or without a paired watch.
   useEffect(() => {
     if (!MOBILE) return
-    let stop = null, gone = false
-    startWatchSync({ useStore, useUI }).then(fn => { if (gone) fn(); else stop = fn })
-    // A session started on the watch starts here as the phone's Start does, with the watch's id
-    // and start time, and no weigh-in question (the lifter is at the watch, not here).
-    const unbind = bindWatchAppActions({
-      start: (ids, { bw = null, ...opts } = {}) => beginWorkout(ids, bw, opts),
-      // The watch's weigh-in: logged as the phone's check-in logs one (today's replaces today's).
-      weighIn: ({ w, at }) => useStore.getState().update(s => { logWeighIn(s, w, at) }),
-      // The watch removed its copies of deleted workouts from Apple Health: the phone's removal
-      // runs again, finds them gone and stops retrying them.
-      healthDeleted: () => { import('./lib/health-sync.js').then(m => m.syncHealth(useStore.getState().S)).catch(() => {}) },
-      patchSet: (where, fields, opts = {}) => useStore.getState().update(s => {
-        patchSetIn(s, where, fields, stampWorkout, { ...opts, recount: w => { w.vol = workoutVolume(w) } })
-      }),
-      // Ticks from the watch are the workout screen's to apply: it opens, and drains the queue.
-      openWorkout: () => { if (!String(window.location.hash || '').startsWith('#/workout')) navToWorkout() },
+    // Bound while the link starts, not after it: a Start at the wrist, a weigh-in or a tick must
+    // not wait for WCSession to activate, and a link that fails to start must not leave them
+    // unhandled (startWatchLink keeps the resend for when the link is up).
+    return startWatchLink({
+      useStore,
+      useUI,
+      actions: {
+        start: (ids, { bw = null, ...opts } = {}) => beginWorkout(ids, bw, opts),
+        // The watch's weigh-in: logged as the phone's check-in logs one (today's replaces today's).
+        weighIn: ({ w, at }) => useStore.getState().update(s => { logWeighIn(s, w, at) }),
+        // The watch removed its copies of deleted workouts from Apple Health: the phone's removal
+        // runs again, finds them gone and stops retrying them.
+        healthDeleted: () => { import('./lib/health-sync.js').then(m => m.syncHealth(useStore.getState().S)).catch(() => {}) },
+        patchSet: (where, fields, opts = {}) => useStore.getState().update(s => {
+          patchSetIn(s, where, fields, stampWorkout, { ...opts, recount: w => { w.vol = workoutVolume(w) } })
+        }),
+        // Ticks from the watch are the workout screen's to apply: it opens, and drains the queue.
+        openWorkout: () => { if (!String(window.location.hash || '').startsWith('#/workout')) navToWorkout() },
+      },
     })
-    return () => { gone = true; stop?.(); unbind() }
   }, [])
   // iPhone app: the Home Screen widgets and the workout's Live Activity (lib/widgets.js,
   // lib/live-activity.js). Nothing at all on the web or on Android.

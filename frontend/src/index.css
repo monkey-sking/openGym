@@ -948,6 +948,12 @@ body.chips-dragging *{cursor:inherit}
 .wprog-row{display:flex;align-items:center;gap:8px;height:12px;margin-bottom:8px}
 .wprog-row .wprog,.whdr.stick .wprog-row .wprog{flex:1;min-width:0;margin-bottom:0}
 .whdr.stick .wprog-row{margin-bottom:2px}
+/* A paused session (lib/workout-pause.js): the clock is frozen, so the header says why and the
+   one button that matters — back into the workout — sits in the same line. */
+.wpause{display:flex;align-items:center;gap:8px;margin:-4px 0 12px;padding:8px 10px;border-radius:12px;background:var(--surface);background:color-mix(in srgb,var(--orange) 14%,var(--surface));font-size:13px}
+.wpause .icn{width:16px;height:16px;flex:none;color:var(--orange)}
+.wpause-txt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wpause .btn{flex:none;padding:4px 12px;font-size:13px}
 .wvol{flex:none;font-size:12px;line-height:12px;color:var(--label-2);font-variant-numeric:tabular-nums;white-space:nowrap}
 .exmedia{position:relative;border-radius:var(--r-lg);overflow:hidden;background:#fff;margin-bottom:12px}
 .exmedia img{width:100%;height:320px;object-fit:contain;display:block}

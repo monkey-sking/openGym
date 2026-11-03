@@ -26,6 +26,7 @@ import { loadCoachDevice, saveCoachDevice, coachDeviceSettings } from '../lib/co
 import { initCoachSchedule } from '../lib/coach-schedule.js'
 import { RTL_LANGS } from '../lib/i18n-core.js'
 import { DEFAULT_TEMPLATE_ID } from '../lib/structuralBalanceTemplates.js'
+import { isPaused, pauseActive, resumeActive } from '../lib/workout-pause.js'
 
 import { WC_DEFAULT } from '../lib/workout-controls.js'
 import { sanitizeAccent } from '../lib/accent.js'
@@ -123,6 +124,14 @@ export const DEF = {
   // List and Compact fold a finished exercise into one line (Settings → Workout; #241). The
   // workout's Layout menu can flip it for the running session (s.active.collapseCompleted).
   collapseCompleted: false,
+  // Settings → Workout: once the rest after a timed exercise's last set runs out, Cards and Focus
+  // already move the screen on by themselves (#532) — this also starts that exercise, so a
+  // session built out of timed blocks runs from its first play button to the end untouched.
+  // On by default in this build: the point of this fork is a hands-free follow-along session, so
+  // a plan made of timed blocks runs from its first play button to the last one without a tap.
+  // Switch it off in Settings → Workout and the screen waits, as upstream does, for a play button
+  // or Space. Only a timed exercise is ever started this way (views/Workout.jsx).
+  autoStartNext: true,
   // How the Library, the exercise picker and the muscle explorer show exercises — 'list' (rows
   // with a small thumbnail) or 'cards' (a grid of pictures with the name underneath). Switched
   // by the button in those headers (ExerciseViewToggle); older profiles overlay onto the list.
@@ -1422,6 +1431,34 @@ export const useStore = create((set, get) => {
         clearTimeout(backupTm)
         backupTm = setTimeout(() => { backupTm = null; get().autoBackupNow() }, AUTO_BACKUP_SOON_MS)
       }
+    },
+    // The session's clock stops (lib/workout-pause.js): a longer break, a call, or the video on the
+    // computer being paused (lib/video-sync.js). `by` says who asked — the video's own echo must not
+    // be answered with another command, and the banner can say the pause came from the video.
+    // A paused session is not pushed: the pause is a moment of this screen, not an edit of the
+    // profile, and a push every break would race the ordinary sync for nothing. It is written
+    // locally like any change, so a reload keeps the frozen clock.
+    pauseWorkout(by = 'app') {
+      const A = get().S.active
+      // A past workout has no clock, and the editor of a saved one is not a session running now.
+      if (!A || A.backfill || A.editingWorkoutId || isPaused(A)) return false
+      get().update(S => {
+        if (!S.active || S.active.id !== A.id) return
+        S.active = { ...pauseActive(S.active), pausedBy: by }
+      }, false)
+      return true
+    },
+    // Running again. A resume the video sent lifts only a pause the video made: a pause the
+    // athlete chose is theirs to end, and autoplay on a tab they opened must not end it for them.
+    resumeWorkout(by = 'app') {
+      const A = get().S.active
+      if (!A || !isPaused(A)) return false
+      if (by === 'video' && A.pausedBy !== 'video') return false
+      get().update(S => {
+        if (!S.active || S.active.id !== A.id) return
+        S.active = { ...resumeActive(S.active), pausedBy: null }
+      }, false)
+      return true
     },
     // An edit of a saved workout (lib/session-edit.js) is saved or dropped like any other change:
     // the store's own sync takes it to the server, and a conflict on the way is settled by

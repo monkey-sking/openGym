@@ -202,7 +202,7 @@ final class GymReminderCenter: NSObject, CLLocationManagerDelegate {
 
     private static func serverQuery() -> [String: Any] {
         return [kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: Bundle.main.bundleIdentifier ?? "ch.opengym.app",
+                kSecAttrService as String: Bundle.main.bundleIdentifier ?? "com.7fei.opengym",
                 kSecAttrAccount as String: "gym-reminder-server"]
     }
 

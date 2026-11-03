@@ -220,7 +220,7 @@ function plausibleHost(host) {
 
 // Hosts whose pages are, in practice, a video: the card then says "Watch video" instead of
 // "Open link". Only the wording changes — nothing is fetched or embedded either way.
-const VIDEO_HOSTS = ['youtube.com', 'youtu.be', 'vimeo.com', 'tiktok.com', 'instagram.com']
+const VIDEO_HOSTS = ['youtube.com', 'youtu.be', 'vimeo.com', 'tiktok.com', 'instagram.com', 'bilibili.com', 'b23.tv']
 
 /** 'video' for a link to a video site, 'link' for anything else, null for no usable link. */
 export function linkKind(url) {

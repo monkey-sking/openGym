@@ -220,6 +220,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <a class="side-link" href="#data"><b>Data</b><span>State sync</span></a>
   <a class="side-link" href="#push"><b>Push</b><span>Notifications &amp; rest timer</span></a>
   <a class="side-link" href="#activity"><b>Activity</b><span>Live presence</span></a>
+  <a class="side-link" href="#video-sync"><b>Video sync</b><span>Desktop video link</span></a>
   <a class="side-link" href="#media"><b>Media</b><span>Photos &amp; videos of your exercises &amp; workouts</span></a>
   <a class="side-link" href="#coach"><b>AI Coach</b><span>Plans, reviews, debriefs</span></a>
   <a class="side-link" href="#admin"><b>Admin</b><span>Users, invites, audit log, Coach</span></a>
@@ -245,7 +246,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <p class="api-facts">
     <span>OpenAPI 3.1.0</span>
     <span>openGym v1.4.3</span>
-    <span>75 endpoints</span>
+    <span>78 endpoints</span>
     <span>AGPL-3.0-or-later</span>
   </p>
 
@@ -1977,6 +1978,146 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="prow rrow">
     <span class="r-code s2">200</span>
     <span class="p-desc">Presence updated.<span class="r-sig"><a href="#schema-Ok">Ok</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+  </div>
+</section>
+
+<section class="api-sec" id="video-sync">
+  <h2>Video sync</h2>
+  <p class="sub">Desktop video sync: the app and the Chrome extension exchange pause, resume and seek commands through an ephemeral per-profile snapshot. Nothing here is persisted, and <code>online</code> is the extension's open event stream.</p>
+  <div class="eps">
+
+<details class="ep" id="op-postVideoSyncCommand">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/video-sync/command</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Send a video-sync command</span>
+  </summary>
+  <div class="ep-body">
+<p>A command from the phone (<code>source: app</code>) or from the Chrome extension (<code>source: video</code>). Every accepted command gets the next <code>seq</code>; the other side ignores anything it has already seen. The same command twice is answered with the same snapshot and does not advance the sequence.</p>
+<p><code>videoUrl</code> travels with <code>start</code>. A browser event that names no URL keeps the video the app selected. An app command without a valid URL clears the prior binding, and <code>end</code> always clears it. A browser event without <code>offset</code> keeps the athlete's current alignment instead of resetting it. <code>force</code> asks for an exact seek rather than the extension's 5 s soft-sync tolerance and is how a chapter boundary lands on its first frame. <code>play</code> on a <code>start</code> is true only for a fresh workout start; a reload or chapter retarget leaves playback alone.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+<p class="ep-h">Request body <span class="p-hint">(JSON)</span></p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">action<em class="p-req" title="required">required</em></span>
+    <span class="p-type">&quot;start&quot; | &quot;pause&quot; | &quot;resume&quot; | &quot;seek&quot; | &quot;end&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">source</span>
+    <span class="p-type">&quot;app&quot; | &quot;video&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">sessionId</span>
+    <span class="p-type">string <span class="p-hint">(&le; 80 chars)</span></span>
+    <span class="p-desc">The workout session this command belongs to.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">videoUrl</span>
+    <span class="p-type">string <span class="p-hint">(&le; 500 chars)</span></span>
+    <span class="p-desc">Only http(s) URLs are stored; anything else is ignored.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">pos</span>
+    <span class="p-type">number</span>
+    <span class="p-desc">The video's own timeline at this moment, in seconds (rounded to a whole second, never negative).</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">offset</span>
+    <span class="p-type">number</span>
+    <span class="p-desc">Athlete alignment tweak in seconds, clamped to -3600..3600. Omitted keeps the current value.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">force</span>
+    <span class="p-type">boolean <span class="p-hint">(default false)</span></span>
+    <span class="p-desc">Seek exactly to <code>pos</code>, even when the drift is under 5 s.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">play</span>
+    <span class="p-type">boolean | null</span>
+    <span class="p-desc">On <code>start</code>, the playback intent: true for a fresh workout that should play, false for an explicit paused start, null to retarget the tab and leave playback alone.</span>
+  </div>
+</div>
+<pre><code>{
+  &quot;action&quot;: &quot;seek&quot;,
+  &quot;source&quot;: &quot;app&quot;,
+  &quot;sessionId&quot;: &quot;s-42&quot;,
+  &quot;videoUrl&quot;: &quot;https://www.bilibili.com/video/BV1xx411c7mD/&quot;,
+  &quot;pos&quot;: 125,
+  &quot;offset&quot;: -5,
+  &quot;force&quot;: true
+}</code></pre>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">The snapshot after the command (or the unchanged duplicate).<span class="r-sig"><a href="#schema-VideoSyncState">VideoSyncState</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Unknown action or malformed JSON body.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-getVideoSyncState">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/video-sync/state</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Read the current video-sync snapshot</span>
+  </summary>
+  <div class="ep-body">
+<p>The app polls this while a workout runs; <code>online</code> is true only while the extension holds the stream open.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">The current per-profile snapshot.<span class="r-sig"><a href="#schema-VideoSyncState">VideoSyncState</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-streamVideoSync">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/video-sync/stream</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Stream video-sync snapshots</span>
+  </summary>
+  <div class="ep-body">
+<p>Server-Sent Events stream held open by the Chrome extension. Each <code>data:</code> line is a <code>VideoSyncState</code>; comments are heartbeats. Holding this stream is what makes <code>online</code> true for the app.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">A <code>text/event-stream</code> of <code>VideoSyncState</code> JSON frames.</span>
   </div>
   <div class="prow rrow">
     <span class="r-code s4">401</span>
@@ -4519,6 +4660,79 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="p-name">email</span>
     <span class="p-type">string | null</span>
     <span class="p-desc">PASSWORD_LOGIN instances only. The e-mail the profile signs in with, if any.</span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-VideoSyncState">
+  <summary>
+    <span class="sch-name"><code>VideoSyncState</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">The ephemeral desktop video sync snapshot for one profile.</span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">epoch<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc">Which server or relay process wrote this snapshot. A new epoch means <code>seq</code> starts again at 1.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">seq<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer</span>
+    <span class="p-desc">Command number within this epoch; a client acts only on a newer one.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">action<em class="p-req" title="required">required</em></span>
+    <span class="p-type">&quot;start&quot; | &quot;pause&quot; | &quot;resume&quot; | &quot;seek&quot; | &quot;end&quot; | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">source<em class="p-req" title="required">required</em></span>
+    <span class="p-type">&quot;app&quot; | &quot;video&quot; | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">sessionId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">videoUrl<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">pos<em class="p-req" title="required">required</em></span>
+    <span class="p-type">number | null</span>
+    <span class="p-desc">Whole seconds on the video's own timeline, when the command carried one.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">offset<em class="p-req" title="required">required</em></span>
+    <span class="p-type">number</span>
+    <span class="p-desc">Athlete alignment in seconds (negative means the video stays behind the workout clock).</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">force<em class="p-req" title="required">required</em></span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc">True when the seek must be exact rather than within the 5 s soft tolerance.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">play<em class="p-req" title="required">required</em></span>
+    <span class="p-type">boolean | null</span>
+    <span class="p-desc">The <code>start</code> playback intent, or null when the command carried none (including every non-start command).</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">at<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer</span>
+    <span class="p-desc">When the command was accepted, ms since epoch (0 before any command).</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">online<em class="p-req" title="required">required</em></span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc">The Chrome extension currently holds the event stream.</span>
   </div>
 </div>
   </div>

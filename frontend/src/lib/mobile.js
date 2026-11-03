@@ -315,6 +315,17 @@ export async function shareExportBlob(blob, filename) {
   await Share.share({ title: filename, url: uri })
 }
 
+// WKWebView is not reliable at saving a downloaded archive. Fetch the app's same-origin
+// helper package, then hand the binary to the system share sheet where the athlete can
+// AirDrop it to a Mac or save it to Files.
+export async function shareRemoteFile(url, filename) {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`Download failed (${response.status})`)
+  const blob = await response.blob()
+  if (!blob.size) throw new Error('Download was empty')
+  await shareExportBlob(blob, filename)
+}
+
 // Hand a self-contained HTML document (lib/plan-share.js planPrintHTML) to the OS print flow.
 // Android routes it through the system PrintManager — "Save as PDF", "Save to Drive", a real
 // printer; iOS through the print sheet — "Save to Files" (as PDF), share, print. Either way the
