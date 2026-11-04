@@ -110,6 +110,8 @@ struct RootView: View {
                 IdleView()
             } else if store.isPaused {
                 PausedView()
+            } else if let end = store.phoneWorkEndsAt, end > Date() {
+                PhoneWorkView(end: end)
             } else if let end = store.holdEndsAt, end > Date() {
                 HoldView(end: end)
             } else if let end = store.restEndsAt, end > Date() {
@@ -1224,6 +1226,18 @@ struct PausedView: View {
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .accessibilityElement(children: .combine)
+            } else if let work = store.pausedPhoneWorkLeft {
+                HStack(spacing: 4) {
+                    if let label = store.phoneWorkLabel, !label.isEmpty {
+                        Text(verbatim: label)
+                    } else {
+                        Text("Set")
+                    }
+                    Text(verbatim: PausedView.clock(work))
+                }
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .accessibilityElement(children: .combine)
             } else if let hold = store.pausedHoldLeft {
                 HStack(spacing: 4) {
                     Text("Hold")
@@ -1255,6 +1269,65 @@ struct PausedView: View {
         let total = max(0, Int(seconds.rounded()))
         let h = total / 3600, m = (total % 3600) / 60, s = total % 60
         return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
+    }
+}
+
+/// A timed set started on the phone, mirrored here as a read-only full-screen countdown. Its
+/// completion is the phone's job; this view must never call completeSet or run a local timer.
+struct PhoneWorkView: View {
+    @EnvironmentObject var store: SessionStore
+    let end: Date
+    @Environment(\.isLuminanceReduced) private var dimmed
+    @ScaledMetric(relativeTo: .largeTitle) private var countdownSize: CGFloat = 42
+
+    var body: some View {
+        VStack(spacing: 2) {
+            ZStack {
+                if let start = store.phoneWorkStartedAt {
+                    CountdownRing(start: start, end: end, color: .cyan)
+                } else {
+                    Circle().stroke(Theme.dim, lineWidth: 7)
+                }
+                VStack(spacing: 1) {
+                    Text(store.phoneWorkLabel ?? store.entry?.name ?? "")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    CountdownText(
+                        end: end,
+                        font: .system(size: countdownSize, weight: .semibold, design: .rounded).monospacedDigit()
+                    )
+                    Text("Set timer")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 18)
+            }
+            .aspectRatio(1, contentMode: .fit)
+            .padding(.horizontal, 6)
+            HStack {
+                LockButton(health: store.health)
+                Spacer()
+                Label("From iPhone", systemImage: "iphone")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .labelStyle(.titleAndIcon)
+            }
+            .opacity(dimmed ? 0 : 1)
+        }
+        .ignoresSafeArea(edges: .bottom)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+        .overlay(alignment: .topTrailing) {
+            Button { store.pause() } label: {
+                Image(systemName: "pause.circle.fill")
+                    .font(.system(size: 26))
+            }
+            .buttonStyle(.plain)
+            .opacity(dimmed ? 0 : 1)
+            .padding(6)
+            .accessibilityLabel(Text("Pause"))
+        }
     }
 }
 

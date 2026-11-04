@@ -42,6 +42,9 @@ struct ActiveWorkout: Codable, Equatable {
     var cur: Int
     var restSec: Double
     var rest: RestInfo?
+    /// A timed set running on the phone. The watch only mirrors its countdown; set completion
+    /// still comes back from the phone as a setDone snapshot.
+    var work: WorkInfo? = nil
     var entries: [Entry]
     /// When it started (ms since 1970), for the summary's duration.
     var start: Double?
@@ -61,6 +64,12 @@ struct ActiveWorkout: Codable, Equatable {
 
 struct RestInfo: Codable, Equatable {
     var endsAt: Double
+}
+
+struct WorkInfo: Codable, Equatable {
+    var endsAt: Double
+    var total: Double?
+    var label: String?
 }
 
 struct Entry: Codable, Equatable {

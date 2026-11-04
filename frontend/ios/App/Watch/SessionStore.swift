@@ -40,6 +40,7 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
     var pausedElapsed: TimeInterval? { SessionCore.pausedElapsed(workout) }
     var pausedRestLeft: TimeInterval? { pausedRestRemaining }
     var pausedHoldLeft: TimeInterval? { pausedHoldRemaining }
+    var pausedPhoneWorkLeft: TimeInterval? { pausedPhoneWorkRemaining }
     var ready: Ready? { state.ready }
     var entryIndex: Int { state.entryIndex }
     var unit: String { workout?.unit ?? state.unit }
@@ -96,6 +97,11 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
     /// A hold running: when it ends, and when it started.
     @Published private(set) var holdEndsAt: Date?
     @Published private(set) var holdStartedAt: Date?
+    /// A timed set running on the phone, mirrored here for display only. It has no timer callback
+    /// and never completes a set on this watch: the phone owns that transition and sends it back.
+    @Published private(set) var phoneWorkEndsAt: Date?
+    @Published private(set) var phoneWorkStartedAt: Date?
+    @Published private(set) var phoneWorkLabel: String?
     /// The end of the last workout, on one screen, until the lifter is done looking at it.
     @Published private(set) var summary: WorkoutSummary?
     /// Whether the phone is in reach now, and how many of this watch's events still wait for it.
@@ -112,6 +118,7 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
     private var pausedRestElapsed: TimeInterval?
     private var pausedHoldRemaining: TimeInterval?
     private var pausedHoldElapsed: TimeInterval?
+    private var pausedPhoneWorkRemaining: TimeInterval?
     /// "All done?": the workout has had no set logged for 20 minutes (WatchCore's Idle).
     @Published var askDone = false
     /// A set picked by hand in an exercise (entry index → set index); otherwise the first not done.
@@ -461,6 +468,9 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
                 let end = Date(timeIntervalSince1970: rest.endsAt / 1000)
                 if end != self.restEndsAt { self.startRest(until: end, notify: true) }
             }
+            if !nowPaused, next.workout?.id == snap.active?.id {
+                self.mirrorPhoneWork(snap.active?.work)
+            }
             self.health.syncSetting(next.settings.health)
             self.removeDeletedFromHealth(snap.healthGone)
             self.loadTargets()
@@ -649,6 +659,7 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
         pausedRestElapsed = nil
         pausedHoldRemaining = nil
         pausedHoldElapsed = nil
+        pausedPhoneWorkRemaining = nil
         if let end = restEndsAt, end > now {
             pausedRestRemaining = end.timeIntervalSince(now)
             pausedRestElapsed = restStartedAt.map { max(0, now.timeIntervalSince($0)) }
@@ -665,6 +676,11 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
             holdTimer = nil
             holdEndsAt = nil
             holdStartedAt = nil
+        }
+        if let end = phoneWorkEndsAt, end > now {
+            pausedPhoneWorkRemaining = end.timeIntervalSince(now)
+            phoneWorkEndsAt = nil
+            phoneWorkStartedAt = nil
         }
         health.pause()
     }
@@ -683,10 +699,15 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
                 DispatchQueue.main.async { self?.endHold(early: false) }
             }
         }
+        if let remaining = pausedPhoneWorkRemaining {
+            phoneWorkEndsAt = now.addingTimeInterval(remaining)
+            phoneWorkStartedAt = nil
+        }
         pausedRestRemaining = nil
         pausedRestElapsed = nil
         pausedHoldRemaining = nil
         pausedHoldElapsed = nil
+        pausedPhoneWorkRemaining = nil
         health.resume()
     }
 
@@ -695,6 +716,25 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
         pausedRestElapsed = nil
         pausedHoldRemaining = nil
         pausedHoldElapsed = nil
+        pausedPhoneWorkRemaining = nil
+        phoneWorkEndsAt = nil
+        phoneWorkStartedAt = nil
+        phoneWorkLabel = nil
+    }
+
+    /// Mirror the phone's timed-set countdown. It intentionally has no scheduled callback: at zero
+    /// the phone ends the set and its next snapshot advances the watch exactly once.
+    private func mirrorPhoneWork(_ work: WorkInfo?) {
+        guard let work else {
+            phoneWorkEndsAt = nil
+            phoneWorkStartedAt = nil
+            phoneWorkLabel = nil
+            return
+        }
+        let end = Date(timeIntervalSince1970: work.endsAt / 1000)
+        phoneWorkEndsAt = end
+        phoneWorkStartedAt = work.total.map { end.addingTimeInterval(-$0) }
+        phoneWorkLabel = work.label
     }
 
     /* ---------- the summary ---------- */
@@ -819,6 +859,7 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
 
     private func begin(_ session: ReadySession, bw: Double?) {
         let now = Date()
+        mirrorPhoneWork(nil)
         let (next, event) = SessionCore.start(state, session, wid: "watch-" + UUID().uuidString,
                                               at: now.timeIntervalSince1970 * 1000, id: UUID().uuidString, bw: bw)
         send(event: event)
@@ -1147,6 +1188,13 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
             switch screen {
             case "set", "weight", "rest", "offline", "edit-weight", "edit-reps": self.picked[0] = 2
             case "hold": self.state.entryIndex = 1
+            case "phonework":
+                self.state.entryIndex = 1
+                self.mirrorPhoneWork(WorkInfo(
+                    endsAt: Date().addingTimeInterval(45).timeIntervalSince1970 * 1000,
+                    total: 45,
+                    label: "Plank"
+                ))
             case "bodyweight": self.state.entryIndex = 2
             case "side": self.state.entryIndex = 3
             case "superset": self.state.entryIndex = 4

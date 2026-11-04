@@ -159,7 +159,7 @@ export function buildReady (S, today = todayISO()) {
 }
 
 /** What the watch needs to run the session: plain data, no media (licence: text only). */
-export function buildSnapshot(S, { timer = null, ready = null } = {}) {
+export function buildSnapshot(S, { timer = null, work = null, ready = null } = {}) {
   const A = S && S.active
   const unit = S && S.unit === 'lb' ? 'lb' : 'kg'
   const restSec = num(S && S.restSec) || 0
@@ -182,6 +182,15 @@ export function buildSnapshot(S, { timer = null, ready = null } = {}) {
       restSec: num(S.restSec) || 0,
       // a rest running on the phone, so the watch counts down the same one
       rest: timer && !timer.paused && !timer.ready && num(timer.endsAt) ? { endsAt: timer.endsAt } : null,
+      // A timed set running on the phone. Display only on the watch: the phone owns the set and
+      // logs it, so the watch must never run its own auto-complete hold from this snapshot.
+      work: work && !work.paused && !work.ready && num(work.endsAt)
+        ? {
+            endsAt: num(work.endsAt),
+            ...(num(work.total) ? { total: num(work.total) } : {}),
+            ...(work.label ? { label: String(work.label) } : {}),
+          }
+        : null,
       // A pause travels with its revision: the watch keeps its own just-tapped pause until a
       // snapshot at least as new arrives, and a phone resume (a higher revision) always wins.
       ...(num(A.pausedAt) ? { pausedAt: num(A.pausedAt) } : {}),
@@ -705,7 +714,11 @@ export async function startWatchSync ({ useStore, useUI, onWatchError = null, si
       const prefs = readWatchPrefs()
       // Settings → Apple Watch: off, the watch is told there is nothing (no workout, nothing ready).
       const snap = prefs.enabled
-        ? buildSnapshot(S, { timer: useUI.getState().timer, ready: readyFor(S) })
+        ? buildSnapshot(S, {
+            timer: useUI.getState().timer,
+            work: useUI.getState().work,
+            ready: readyFor(S),
+          })
         : { v: SNAPSHOT_VERSION, unit: S.unit === 'lb' ? 'lb' : 'kg', active: null, ready: null }
       snap.settings = { ...settingsForWatch(prefs, healthOn), ...watchExtras(S) }
       // With Apple Health on: the deleted workouts, so the watch removes the copies it saved.
@@ -959,9 +972,13 @@ export async function startWatchSync ({ useStore, useUI, onWatchError = null, si
     // the pending open is retried when the link is ready or the app returns to the foreground.
     if (shouldOpenOnWatch(prev.S?.active, s.S?.active)) queueOpen(s.S.active)
   }
-  // The rest as the watch needs it changes when it starts, stops or is paused, not every second.
+  // The rest and work timers as the watch needs them change when they start, stop, resume or pause,
+  // not every second. Their snapshots carry only endsAt; the watch's native countdown ticks itself.
   const restOf = t => (t ? `${t.endsAt}|${!!t.paused}|${!!t.ready}` : '')
-  keep(useUI.subscribe((s, prev) => { if (s.timer !== prev.timer && restOf(s.timer) !== restOf(prev.timer)) schedule() }))
+  const workOf = w => (w ? `${w.endsAt}|${!!w.paused}|${w.total || 0}|${w.label || ''}` : '')
+  keep(useUI.subscribe((s, prev) => {
+    if (restOf(s.timer) !== restOf(prev.timer) || workOf(s.work) !== workOf(prev.work)) schedule()
+  }))
   keep(onWatchPrefs(() => schedule()))
   // The watch speaks the app's language, not its own system's: told again when it changes (the
   // exercise names in the snapshot change with it too).

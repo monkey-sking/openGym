@@ -19,6 +19,22 @@ final class SessionCoreTests: XCTestCase {
                      "a suspended view may redraw after the deadline")
     }
 
+    func testAWorkTimerFromThePhoneIsDecodedAndOptionalForOlderSnapshots() throws {
+        let json = """
+        {"v":1,"unit":"kg","active":{"id":"p1","name":"Push","unit":"kg","cur":0,"restSec":90,
+        "work":{"endsAt":1760000060000,"total":45,"label":"Plank"},"entries":[]}}
+        """
+        let snap = try JSONDecoder().decode(Snapshot.self, from: Data(json.utf8))
+        XCTAssertEqual(snap.active?.work, WorkInfo(endsAt: 1760000060000, total: 45, label: "Plank"))
+
+        let old = """
+        {"v":1,"unit":"kg","active":{"id":"p1","name":"Push","unit":"kg","cur":0,"restSec":90,
+        "entries":[]}}
+        """
+        let oldSnap = try JSONDecoder().decode(Snapshot.self, from: Data(old.utf8))
+        XCTAssertNil(oldSnap.active?.work)
+    }
+
     func workout(_ id: String, sets: [SetRow], cur: Int = 0) -> ActiveWorkout {
         ActiveWorkout(id: id, name: "Push", unit: "kg", cur: cur, restSec: 90, rest: nil,
                       entries: [Entry(id: "0025", name: "Bench Press", mode: "reps", restSec: nil, last: nil, sets: sets),

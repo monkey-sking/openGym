@@ -44,6 +44,18 @@ describe('the snapshot', () => {
     expect(buildSnapshot(state({ unit: 'lb' })).active.unit).toBe('lb')
   })
 
+  it('mirrors a timed set running on the phone without turning it into a watch-owned hold', () => {
+    const work = { endsAt: 1760000060000, total: 45, left: 39, label: 'Plank' }
+    expect(buildSnapshot(state(), { work }).active.work).toEqual({
+      endsAt: 1760000060000,
+      total: 45,
+      label: 'Plank',
+    })
+    expect(buildSnapshot(state(), { work: { ...work, paused: true } }).active.work).toBeNull()
+    expect(buildSnapshot(state(), { work: { ...work, ready: true } }).active.work).toBeNull()
+    expect(buildSnapshot(state()).active.work).toBeNull()
+  })
+
   it('names the last time of an exercise when the history has one', () => {
     const S = state({ workouts: [{ id: 'old', d: '2026-10-01', entries: [{ id: '0025', target: { sets: 2, reps: 8 }, sets: [{ w: 55, r: 8, done: true }, { w: 55, r: 7, done: true }] }] }] })
     expect(buildSnapshot(S).active.entries[0].last).toMatch(/55/)
