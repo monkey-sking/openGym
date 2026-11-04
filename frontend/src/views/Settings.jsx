@@ -455,7 +455,7 @@ export default function Settings({ page = null, find = null, via = null, entryKe
     data: () => '',
     about: () => 'v' + __APP_VERSION__,
     watch: () => '',
-    'video-sync': () => (readVideoSyncServer() ? t('Relay set') : t('Not configured')),
+    'video-sync': () => (readVideoSyncServer() ? t('Paired') : t('Not paired')),
   }
 
   const open = id => {

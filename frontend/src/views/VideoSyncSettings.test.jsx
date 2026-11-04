@@ -6,7 +6,6 @@ import VideoSyncSettingsPage, {
   VIDEO_SYNC_HEALTH_POLL_MS,
   discoveryFailureMessage,
   discoveryUrl,
-  macHelperUrl,
   relayPhase,
   relayPhaseLabel,
 } from './VideoSyncSettings.jsx'
@@ -19,9 +18,9 @@ const mocks = vi.hoisted(() => ({
   saved: '',
   writes: [],
   probe: vi.fn(),
+  verify: vi.fn(),
   plugin: null,
   registerPlugin: vi.fn(),
-  shareRemoteFile: vi.fn(),
 }))
 
 vi.mock('../lib/i18n.js', () => ({ t: value => value }))
@@ -32,11 +31,11 @@ vi.mock('../lib/video-sync.js', () => ({
     mocks.saved = value
   },
   probeVideoSyncServer: (...args) => mocks.probe(...args),
+  verifyPairingCode: (...args) => mocks.verify(...args),
 }))
 vi.mock('../lib/mobile.js', () => ({
   get MOBILE () { return mocks.mobile },
   nativePlatform: () => Promise.resolve(mocks.platform),
-  shareRemoteFile: (...args) => mocks.shareRemoteFile(...args),
 }))
 vi.mock('@capacitor/core', () => ({
   registerPlugin: (...args) => mocks.registerPlugin(...args),
@@ -61,9 +60,9 @@ beforeEach(() => {
   mocks.saved = ''
   mocks.writes = []
   mocks.probe = vi.fn()
+  mocks.verify = vi.fn()
   mocks.plugin = null
   mocks.registerPlugin = vi.fn(() => mocks.plugin)
-  mocks.shareRemoteFile = vi.fn()
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -94,31 +93,31 @@ const health = ({ extension = true, phone = true } = {}) => ({
 })
 
 describe('connection phases', () => {
-  it('maps relay, extension and phone facts to four unambiguous phases', () => {
+  it('maps computer, extension and phone facts to four unambiguous user-facing phases', () => {
     expect(relayPhase(null)).toBe('relay-unreachable')
     expect(relayPhase({ ok: true, extensionConnected: false, phoneConnected: false })).toBe('extension-missing')
     expect(relayPhase({ ok: true, extensionConnected: true, phoneConnected: false })).toBe('phone-missing')
     expect(relayPhase({ ok: true, extensionConnected: true, phoneConnected: true })).toBe('connected')
 
-    expect(relayPhaseLabel('relay-unreachable')).toBe('Relay not running or unreachable')
-    expect(relayPhaseLabel('extension-missing')).toBe('Relay running; Chrome extension not connected')
-    expect(relayPhaseLabel('phone-missing')).toBe('Chrome extension connected; waiting for a phone workout')
-    expect(relayPhaseLabel('connected')).toBe('Phone workout and Chrome extension connected')
+    expect(relayPhaseLabel('relay-unreachable')).toBe('Computer not reachable')
+    expect(relayPhaseLabel('extension-missing')).toBe('Computer available; open the openGym Chrome extension')
+    expect(relayPhaseLabel('phone-missing')).toBe('Chrome extension connected; start a workout on your phone')
+    expect(relayPhaseLabel('connected')).toBe('Phone and Chrome extension connected')
+    expect(relayPhaseLabel('unconfigured')).toBe('Not paired')
   })
 
-  it('keeps discovery failures actionable instead of collapsing them into no relay', () => {
+  it('keeps discovery failures actionable without technical relay/Mac helper wording', () => {
     expect(discoveryFailureMessage('permission-denied')).toContain('Local Network access is off')
-    expect(discoveryFailureMessage('permission-denied')).not.toContain('No relay was found')
-    expect(discoveryFailureMessage('not-found')).toContain('Set up Mac helper')
-    expect(discoveryFailureMessage('not-found')).not.toContain('Turn On at Login')
-    expect(discoveryFailureMessage('timeout')).toContain('Set up Mac helper')
-    expect(discoveryFailureMessage('timeout')).not.toContain('Turn On at Login')
+    expect(discoveryFailureMessage('permission-denied')).not.toContain('No computer was found')
+    expect(discoveryFailureMessage('not-found')).toContain('Open the openGym Chrome extension')
+    expect(discoveryFailureMessage('not-found')).not.toContain('Set up Mac helper')
+    expect(discoveryFailureMessage('timeout')).toContain('Open the openGym Chrome extension')
+    expect(discoveryFailureMessage('timeout')).not.toContain('Set up Mac helper')
     expect(discoveryFailureMessage('resolution-failed')).toContain('could not resolve its Wi-Fi address')
-    expect(discoveryFailureMessage('resolution-failed')).toContain('openGym Video Sync')
     expect(discoveryFailureMessage('search-failed')).toContain('could not search the local network')
-    expect(discoveryFailureMessage('unsupported')).toContain('only available in the iPhone app')
+    expect(discoveryFailureMessage('unsupported')).toContain('only available in the openGym iPhone app')
     for (const reason of ['permission-denied', 'not-found', 'timeout', 'resolution-failed', 'search-failed']) {
-      expect(discoveryFailureMessage(reason)).not.toMatch(/\.command|Terminal|Node\.js/)
+      expect(discoveryFailureMessage(reason)).not.toMatch(/relay|Mac helper|\.command|Terminal|Node\.js/i)
     }
   })
 
@@ -132,108 +131,89 @@ describe('connection phases', () => {
   })
 })
 
-describe('Mac helper setup', () => {
-  it('uses the bundled same-origin helper by default and accepts only safe overrides', () => {
-    expect(macHelperUrl(' https://opengym.example/downloads/helper.zip ')).toBe('https://opengym.example/downloads/helper.zip')
-    expect(macHelperUrl('http://localhost:4173/helper.zip')).toBe('http://localhost:4173/helper.zip')
-    expect(macHelperUrl('file:///Users/me/helper.zip')).toBe('')
-    expect(macHelperUrl('javascript:alert(1)')).toBe('')
-    expect(macHelperUrl('//opengym.example/helper.zip')).toBe('')
-    expect(macHelperUrl('/downloads/helper.zip')).toBe('/downloads/helper.zip')
-    expect(macHelperUrl('')).toBe('/downloads/openGym-Video-Sync.zip')
-    expect(macHelperUrl()).toBe('/downloads/openGym-Video-Sync.zip')
+describe('pairing flow', () => {
+  it('renders the pairing input and button in the primary position', async () => {
+    await mount()
+    expect(host.textContent).toContain('Pair with Chrome')
+    const input = host.querySelector('input')
+    expect(input).toBeTruthy()
+    expect(input.placeholder).toBe('4-CHARACTER CODE')
+
+    const pairBtn = [...host.querySelectorAll('button')]
+      .find(b => b.textContent.trim() === 'Pair')
+    expect(pairBtn).toBeTruthy()
+    expect(pairBtn.disabled).toBe(true)
+
+    // No legacy technical fields in the DOM
+    expect(host.textContent).not.toContain('Relay configuration')
+    expect(host.textContent).not.toContain('Set up Mac helper')
+    expect(host.textContent).not.toContain('Address in use')
   })
 
-  it('offers one ordinary-user setup entry and explains what opening it does', async () => {
-    mocks.mobile = false
-    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
-
-    await mount({ macHelperUrl: 'https://opengym.example/downloads/helper.zip' })
-
-    const setup = [...host.querySelectorAll('button')]
-      .find(button => button.textContent.trim() === 'Set up Mac helper')
-    expect(setup).toBeTruthy()
-    expect(host.querySelectorAll('.btn.primary')).toHaveLength(1)
-    expect(setup.classList.contains('primary')).toBe(true)
-    expect(host.textContent).toContain('installs for this user')
-    expect(host.textContent).toContain('starts automatically when you sign in')
-    expect(host.textContent).toContain('may ask once to confirm')
-    expect(host.textContent).not.toContain('Turn On at Login')
-    expect(host.textContent).not.toContain('One-time recovery steps')
-
-    await act(async () => setup.click())
-    expect(open).toHaveBeenCalledWith(
-      'https://opengym.example/downloads/helper.zip',
-      '_blank',
-      'noopener,noreferrer'
-    )
-  })
-
-  it('shares the bundled helper on iPhone without exposing technical setup', async () => {
-    mocks.mobile = true
-    mocks.platform = 'ios'
-    mocks.shareRemoteFile.mockResolvedValue()
-    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+  it('pairs using 4-character code and updates saved address on success', async () => {
+    mocks.plugin = {
+      discover: vi.fn().mockResolvedValue({ found: true, host: '192.168.1.55', port: 8787 }),
+    }
+    mocks.verify.mockResolvedValue('http://192.168.1.55:8787')
+    mocks.probe.mockResolvedValue(health({ extension: true, phone: true }))
 
     await mount()
 
-    const setup = [...host.querySelectorAll('button')]
-      .find(button => button.textContent.trim() === 'Set up Mac helper')
-    expect(setup).toBeTruthy()
-    expect(host.textContent).toContain('Tap once')
-    expect(host.textContent).toContain('open it once on the Mac')
-    expect(host.textContent).not.toContain('Turn On at Login')
-    expect(host.textContent).not.toContain('Developer build')
-    expect(host.textContent).not.toContain('VITE_VIDEO_SYNC_MAC_HELPER_URL')
+    const input = host.querySelector('input')
+    const pairBtn = [...host.querySelectorAll('button')]
+      .find(b => b.textContent.trim() === 'Pair')
 
     await act(async () => {
-      setup.click()
+      const propDesc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+      propDesc.set.call(input, '7FEI')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      input.dispatchEvent(new Event('change', { bubbles: true }))
       await flush()
     })
 
-    expect(mocks.shareRemoteFile).toHaveBeenCalledWith(
-      '/downloads/openGym-Video-Sync.zip',
-      'openGym Video Sync.zip'
-    )
-    expect(open).not.toHaveBeenCalled()
-    expect(host.textContent).toContain('Choose AirDrop to your Mac or Save to Files')
+    expect(pairBtn.disabled).toBe(false)
+
+    await act(async () => {
+      pairBtn.click()
+      await flush()
+    })
+
+    expect(mocks.verify).toHaveBeenCalledWith('7FEI', { candidateUrl: 'http://192.168.1.55:8787' })
+    expect(mocks.writes).toContain('http://192.168.1.55:8787')
+    expect(host.textContent).toContain('Paired successfully.')
+    expect(host.textContent).toContain('Phone and Chrome extension connected')
   })
 
-  it('falls back to the direct helper page when mobile sharing fails, without showing the error', async () => {
-    mocks.mobile = true
-    mocks.platform = 'ios'
-    mocks.shareRemoteFile.mockRejectedValue(new Error('native bridge unavailable'))
-    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+  it('rejects an expired or unknown pairing code without saving', async () => {
+    mocks.plugin = {
+      discover: vi.fn().mockResolvedValue({ found: true, host: '192.168.1.55', port: 8787 }),
+    }
+    mocks.verify.mockResolvedValue(null)
 
     await mount()
-    const setup = [...host.querySelectorAll('button')]
-      .find(button => button.textContent.trim() === 'Set up Mac helper')
+    const input = host.querySelector('input')
+    const pairBtn = [...host.querySelectorAll('button')].find(b => b.textContent.trim() === 'Pair')
 
     await act(async () => {
-      setup.click()
+      const propDesc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+      propDesc.set.call(input, 'ABCD')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      input.dispatchEvent(new Event('change', { bubbles: true }))
       await flush()
     })
 
-    expect(open).toHaveBeenCalledWith(
-      '/downloads/openGym-Video-Sync.zip',
-      '_blank',
-      'noopener,noreferrer'
-    )
-    expect(host.textContent).toContain('The helper could not be shared')
-    expect(host.textContent).not.toContain('native bridge unavailable')
-  })
+    await act(async () => {
+      pairBtn.click()
+      await flush()
+    })
 
-  it('keeps a friendly message when no helper URL can be resolved', async () => {
-    mocks.mobile = false
-    await mount({ macHelperUrl: 'javascript:alert(1)' })
-
-    expect(host.textContent).toContain('The Mac helper is temporarily unavailable')
-    expect(host.textContent).not.toContain('Developer build')
+    expect(mocks.writes).toEqual([])
+    expect(host.textContent).toContain('Pairing code not found or expired. Check the openGym Chrome extension.')
   })
 })
 
 describe('automatic status recovery', () => {
-  it('advances relay -> extension -> phone without flashing Checking during a background probe', async () => {
+  it('advances extension -> phone without flashing Checking during a background probe', async () => {
     vi.useFakeTimers()
     mocks.saved = 'http://192.168.1.8:8787'
     let resolveSecond
@@ -244,24 +224,24 @@ describe('automatic status recovery', () => {
 
     await mount()
     expect(mocks.probe).toHaveBeenCalledTimes(1)
-    expect(host.textContent).toContain('Chrome extension connected; waiting for a phone workout')
+    expect(host.textContent).toContain('Chrome extension connected; start a workout on your phone')
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(VIDEO_SYNC_HEALTH_POLL_MS)
       await flush()
     })
     expect(mocks.probe).toHaveBeenCalledTimes(2)
-    expect(host.textContent).toContain('Chrome extension connected; waiting for a phone workout')
+    expect(host.textContent).toContain('Chrome extension connected; start a workout on your phone')
     expect(host.textContent).not.toContain('Checking…')
 
     await act(async () => {
       resolveSecond(health({ extension: true, phone: true }))
       await flush()
     })
-    expect(host.textContent).toContain('Phone workout and Chrome extension connected')
+    expect(host.textContent).toContain('Phone and Chrome extension connected')
   })
 
-  it('uses a newly discovered Wi-Fi address without silently replacing a saved address', async () => {
+  it('uses a newly discovered Wi-Fi address for the current session without overwriting saved address', async () => {
     const saved = 'http://192.168.1.8:8787'
     const discovered = 'http://192.168.1.19:8787'
     mocks.saved = saved
@@ -276,24 +256,22 @@ describe('automatic status recovery', () => {
 
     expect(mocks.probe.mock.calls.map(call => call[0])).toEqual([saved, discovered])
     expect(mocks.writes).toEqual([])
-    expect(host.textContent).toContain(discovered)
-    expect(host.textContent).toContain('tap Search to save it')
+    expect(host.textContent).toContain('Chrome extension connected; start a workout on your phone')
   })
 
-  it('saves an automatically discovered address only when no user address exists', async () => {
-    const discovered = 'http://192.168.1.19:8787'
-    mocks.probe.mockResolvedValue(health({ extension: true, phone: false }))
+  it('stays unconfigured and does not write to storage when unconfigured and no pairing done', async () => {
+    mocks.saved = ''
     mocks.plugin = {
       discover: vi.fn().mockResolvedValue({ found: true, host: '192.168.1.19', port: 8787 }),
     }
 
     await mount()
 
-    expect(mocks.writes).toEqual([discovered])
-    expect(host.textContent).toContain(discovered)
+    expect(mocks.writes).toEqual([])
+    expect(host.textContent).toContain('Not paired')
   })
 
-  it('shows a Local Network permission problem, not a generic offline relay', async () => {
+  it('shows a Local Network permission problem, not a generic offline error', async () => {
     mocks.saved = 'http://192.168.1.8:8787'
     mocks.probe.mockResolvedValue(null)
     mocks.plugin = {
@@ -308,17 +286,6 @@ describe('automatic status recovery', () => {
 
     expect(host.textContent).toContain('Local Network permission required')
     expect(host.textContent).toContain('Local Network access is off')
-    expect(host.textContent).not.toContain('Relay not running or unreachable')
-  })
-})
-
-describe("4-digit pairing code", () => {
-  it("renders the pairing input and button", async () => {
-    await mount()
-    expect(host.textContent).toContain("Quick pair with Chrome")
-    const pairBtn = [...host.querySelectorAll("button")]
-      .find(b => b.textContent.trim() === "Pair")
-    expect(pairBtn).toBeTruthy()
-    expect(pairBtn.disabled).toBe(true)
+    expect(host.textContent).not.toContain('Computer not reachable')
   })
 })

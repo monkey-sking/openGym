@@ -1,6 +1,5 @@
-// Settings → Video sync: diagnose and recover the three independent connections.
-// A red status is not enough: this page keeps checking the relay, then says whether the Chrome
-// extension or the phone workout is the missing part.
+// Settings → Video sync: pair once, then diagnose the phone, Chrome and workout link.
+// Pairing belongs here rather than in the middle of a workout.
 import { useState, useEffect } from 'react'
 import { t } from '../lib/i18n.js'
 import { Section, Row, Button, TextField } from '../components/ui.jsx'
@@ -10,7 +9,7 @@ import {
   probeVideoSyncServer,
   verifyPairingCode,
 } from '../lib/video-sync.js'
-import { MOBILE, nativePlatform, shareRemoteFile } from '../lib/mobile.js'
+import { MOBILE, nativePlatform } from '../lib/mobile.js'
 import { useUI } from '../store/useUI.js'
 
 export const VIDEO_SYNC_HEALTH_POLL_MS = 3000
@@ -18,24 +17,6 @@ export const VIDEO_SYNC_DISCOVERY_RETRY_MS = 12000
 export const VIDEO_SYNC_HEALTH_TIMEOUT_MS = 2500
 
 const DISCOVERY_TIMEOUT_MS = 4000
-export const DEFAULT_MAC_HELPER_URL = '/downloads/openGym-Video-Sync.zip'
-const MAC_HELPER_FILENAME = 'openGym Video Sync.zip'
-
-export function macHelperUrl(raw = import.meta.env?.VITE_VIDEO_SYNC_MAC_HELPER_URL) {
-  const configured = typeof raw === 'string' ? raw.trim() : ''
-  const candidate = configured || DEFAULT_MAC_HELPER_URL
-  if (candidate.startsWith('/') && !candidate.startsWith('//') && !candidate.includes('\\')) {
-    return candidate
-  }
-  try {
-    const url = new URL(candidate)
-    return url.protocol === 'http:' || url.protocol === 'https:' ? candidate : ''
-  } catch {
-    return ''
-  }
-}
-
-export const VIDEO_SYNC_MAC_HELPER_URL = macHelperUrl()
 
 export function relayPhase(health) {
   if (!health?.ok) return 'relay-unreachable'
@@ -51,39 +32,39 @@ export function discoveryFailureMessage(reason) {
     case 'search-failed':
       return t('This iPhone could not search the local network. Turn on Wi-Fi and Local Network access, then try again.')
     case 'resolution-failed':
-      return t('A relay was found, but this iPhone could not resolve its Wi-Fi address. On the Mac, open openGym Video Sync and check that its menu-bar status says it is running, then try again.')
+      return t('Your computer was found, but this iPhone could not resolve its Wi-Fi address. Keep both devices on the same Wi-Fi and try again.')
     case 'timeout':
-      return t('The relay search timed out. Tap Set up Mac helper above, open it once, and use the same Wi-Fi.')
+      return t('No computer answered. Open the openGym Chrome extension on your computer and keep both devices on the same Wi-Fi.')
     case 'not-found':
-      return t('No relay was found. Tap Set up Mac helper above, open it once, and keep both devices on the same Wi-Fi.')
+      return t('No computer was found. Open the openGym Chrome extension on your computer and keep both devices on the same Wi-Fi.')
     case 'unsupported':
-      return t('Automatic discovery is only available in the iPhone app. Enter the computer relay address below.')
+      return t('Pairing is only available in the openGym iPhone app.')
     case 'canceled':
-      return t('The earlier relay search was replaced. Searching again will not change your saved address.')
+      return t('The earlier search was replaced. Try again.')
     default:
-      return t('No relay was found. Tap Set up Mac helper above, open it once, and keep both devices on the same Wi-Fi.')
+      return t('No computer was found. Open the openGym Chrome extension on your computer and keep both devices on the same Wi-Fi.')
   }
 }
 
 export function relayPhaseLabel(phase) {
   switch (phase) {
     case 'connected':
-      return t('Phone workout and Chrome extension connected')
+      return t('Phone and Chrome extension connected')
     case 'phone-missing':
-      return t('Chrome extension connected; waiting for a phone workout')
+      return t('Chrome extension connected; start a workout on your phone')
     case 'extension-missing':
-      return t('Relay running; Chrome extension not connected')
+      return t('Computer available; open the openGym Chrome extension')
     case 'permission-denied':
       return t('Local Network permission required')
     case 'searching':
-      return t('Searching for the relay on this Wi-Fi…')
+      return t('Looking for your computer on this Wi-Fi…')
     case 'checking':
       return t('Checking…')
     case 'unconfigured':
-      return t('Not configured')
+      return t('Not paired')
     case 'relay-unreachable':
     default:
-      return t('Relay not running or unreachable')
+      return t('Computer not reachable')
   }
 }
 
@@ -119,26 +100,26 @@ async function discoverRelayOnce(timeout = DISCOVERY_TIMEOUT_MS) {
 
 function phaseDetail(phase, failureReason, discoveredServer, savedServer) {
   if (phase === 'connected') {
-    return t('All three parts are connected. This status refreshes automatically every 3 seconds.')
+    return t('Your phone, Chrome and workout are connected. This status refreshes automatically.')
   }
   if (phase === 'phone-missing') {
     return t('Chrome is connected. Start or resume a workout on this phone; the page will advance automatically.')
   }
   if (phase === 'extension-missing') {
-    return t('The relay is running. Open the openGym Chrome extension and allow access to the relay address.')
+    return t('Your computer is available. Open the openGym Chrome extension and keep it enabled.')
   }
   if (phase === 'permission-denied') return discoveryFailureMessage(failureReason || 'permission-denied')
-  if (phase === 'searching') return t('Looking for the computer relay with Bonjour. No address needs to be typed.')
-  if (phase === 'checking') return t('Checking the saved relay address and its two clients.')
-  if (phase === 'unconfigured') return t('Enter the computer relay address below, or search on this Wi-Fi network.')
+  if (phase === 'searching') return t('Looking for your computer on this Wi-Fi. No address is needed.')
+  if (phase === 'checking') return t('Checking the saved computer connection.')
+  if (phase === 'unconfigured') return t('Pair with the 4-character code shown in the openGym Chrome extension.')
   if (failureReason) return discoveryFailureMessage(failureReason)
   if (discoveredServer && savedServer && discoveredServer !== savedServer) {
-    return t('Using the relay found on this Wi-Fi for now. Tap Search to save its new address.')
+    return t('Using the computer found on this Wi-Fi for this workout.')
   }
-  return t('Tap Set up Mac helper above, open it once, then keep both devices on the same Wi-Fi.')
+  return t('Open the openGym Chrome extension and keep both devices on the same Wi-Fi.')
 }
 
-export default function VideoSyncSettingsPage({ macHelperUrl: configuredHelperUrl = VIDEO_SYNC_MAC_HELPER_URL }) {
+export default function VideoSyncSettingsPage() {
   const initialServer = readVideoSyncServer()
   const [server, setServer] = useState(initialServer)
   const [savedServer, setSavedServer] = useState(initialServer)
@@ -147,38 +128,48 @@ export default function VideoSyncSettingsPage({ macHelperUrl: configuredHelperUr
   const [healthInfo, setHealthInfo] = useState(null)
   const [failureReason, setFailureReason] = useState('')
   const [discoveredServer, setDiscoveredServer] = useState('')
-  const [searching, setSearching] = useState(false)
-  const [searchMsg, setSearchMsg] = useState('')
-  const [helperBusy, setHelperBusy] = useState(false)
-  const [helperMsg, setHelperMsg] = useState('')
   const offset = useUI(s => s.videoSync?.offset || 0)
   const nudge = useUI(s => s.videoSync?.nudge)
-  const [pairCode, setPairCode] = useState("")
+  const [pairCode, setPairCode] = useState('')
   const [pairingBusy, setPairingBusy] = useState(false)
-  const [pairMsg, setPairMsg] = useState("")
+  const [pairMsg, setPairMsg] = useState('')
 
   const handlePairCode = async () => {
-    const code = (pairCode || "").trim().toUpperCase()
+    const code = (pairCode || '').trim().toUpperCase()
     if (!code || code.length !== 4) {
-      setPairMsg(t("Please enter a 4-character pairing code."))
+      setPairMsg(t('Please enter a 4-character pairing code.'))
       return
     }
     setPairingBusy(true)
-    setPairMsg(t("Verifying pairing code…"))
+    setPairMsg(t('Verifying pairing code…'))
     try {
-      const resolved = await verifyPairingCode(code, { candidateUrl: server || effectiveServer })
+      let resolved = null
+      const knownServer = server || effectiveServer
+      if (knownServer) {
+        resolved = await verifyPairingCode(code, { candidateUrl: knownServer })
+      }
+      if (!resolved) {
+        const found = await discoverRelayOnce()
+        if (found.url) {
+          resolved = await verifyPairingCode(code, { candidateUrl: found.url })
+        } else if (!knownServer) {
+          setPairMsg(discoveryFailureMessage(found.reason))
+          return
+        }
+      }
       if (resolved) {
         writeVideoSyncServer(resolved)
         setServer(resolved)
         setSavedServer(resolved)
         setEffectiveServer(resolved)
-        setPairMsg(t("Paired successfully!"))
+        setDiscoveredServer('')
+        setPairMsg(t('Paired successfully.'))
         testServer(resolved)
       } else {
-        setPairMsg(t("Pairing code not found or expired. Check Chrome extension."))
+        setPairMsg(t('Pairing code not found or expired. Check the openGym Chrome extension.'))
       }
     } catch {
-      setPairMsg(t("Pairing failed. Ensure phone and computer are on the same Wi-Fi."))
+      setPairMsg(t('Pairing failed. Keep your phone and computer on the same Wi-Fi and try again.'))
     } finally {
       setPairingBusy(false)
     }
@@ -205,7 +196,6 @@ export default function VideoSyncSettingsPage({ macHelperUrl: configuredHelperUr
       setEffectiveServer(active)
       setFailureReason('')
       setPhase(nextPhase)
-      if (nextPhase === 'connected') setSearchMsg('')
     }
 
     const showUnavailable = reason => {
@@ -225,28 +215,9 @@ export default function VideoSyncSettingsPage({ macHelperUrl: configuredHelperUr
       if (canceled) return
 
       if (!active) {
-        if (!MOBILE) {
-          setHealthInfo(null)
-          setPhase('unconfigured')
-          return
-        }
-        setSearching(true)
-        setPhase('searching')
-        const found = await discoverRelayOnce()
-        if (canceled) return
-        setSearching(false)
-        if (!found.url) {
-          showUnavailable(found.reason)
-          setSearchMsg(discoveryFailureMessage(found.reason))
-          schedule(VIDEO_SYNC_DISCOVERY_RETRY_MS)
-          return
-        }
-        // There was no user-entered address to preserve, so automatic discovery may persist it.
-        writeVideoSyncServer(found.url)
-        setServer(found.url)
-        setSavedServer(found.url)
-        setEffectiveServer(found.url)
-        setSearchMsg(t('Relay found. Checking its Chrome extension and this phone workout.'))
+        setHealthInfo(null)
+        setFailureReason('')
+        setPhase('unconfigured')
         return
       }
 
@@ -270,9 +241,6 @@ export default function VideoSyncSettingsPage({ macHelperUrl: configuredHelperUr
             active = found.url
             setEffectiveServer(found.url)
             setDiscoveredServer(savedServer && found.url !== savedServer ? found.url : '')
-            if (savedServer && found.url !== savedServer) {
-              setSearchMsg(t('Relay found at a new Wi-Fi address. Using it for this session; tap Search to save it.'))
-            }
           }
           const recovered = await probeVideoSyncServer(found.url, { timeout: VIDEO_SYNC_HEALTH_TIMEOUT_MS })
           if (canceled) return
@@ -300,28 +268,6 @@ export default function VideoSyncSettingsPage({ macHelperUrl: configuredHelperUr
     }
   }, [savedServer])
 
-  const runDiscovery = async () => {
-    setSearching(true)
-    setSearchMsg(t('Searching…'))
-    const found = await discoverRelayOnce()
-    setSearching(false)
-    if (!found.url) {
-      const message = discoveryFailureMessage(found.reason)
-      setSearchMsg(message)
-      if (!healthInfo) {
-        setFailureReason(found.reason)
-        setPhase(found.reason === 'permission-denied' ? 'permission-denied' : 'relay-unreachable')
-      }
-      return
-    }
-    writeVideoSyncServer(found.url)
-    setServer(found.url)
-    setSavedServer(found.url)
-    setEffectiveServer(found.url)
-    setDiscoveredServer('')
-    setSearchMsg(t('Relay found. Checking its Chrome extension and this phone workout.'))
-  }
-
   const testServer = async (addr) => {
     const target = (addr ?? server).trim()
     if (!target) {
@@ -344,30 +290,6 @@ export default function VideoSyncSettingsPage({ macHelperUrl: configuredHelperUr
     }
   }
 
-  const save = () => {
-    const trimmed = (server || '').trim()
-    writeVideoSyncServer(trimmed)
-    setServer(trimmed)
-    setSavedServer(trimmed)
-    setEffectiveServer(trimmed)
-    setDiscoveredServer('')
-    setFailureReason('')
-    setHealthInfo(null)
-    setPhase(trimmed ? 'checking' : (MOBILE ? 'searching' : 'unconfigured'))
-  }
-
-  const clear = () => {
-    writeVideoSyncServer('')
-    setServer('')
-    setSavedServer('')
-    setEffectiveServer('')
-    setDiscoveredServer('')
-    setHealthInfo(null)
-    setFailureReason('')
-    setSearchMsg('')
-    setPhase(MOBILE ? 'searching' : 'unconfigured')
-  }
-
   const statusLabel = relayPhaseLabel(phase)
   const statusDetail = phaseDetail(phase, failureReason, discoveredServer, savedServer)
   const statusTone = phase === 'connected'
@@ -375,84 +297,34 @@ export default function VideoSyncSettingsPage({ macHelperUrl: configuredHelperUr
     : phase === 'checking' || phase === 'searching'
       ? 'var(--orange, #b7791f)'
       : 'var(--red, #c0392b)'
-  const helperUrl = macHelperUrl(configuredHelperUrl)
-
-  const openMacHelper = async () => {
-    if (!helperUrl || helperBusy) return
-    if (!MOBILE) {
-      window.open(helperUrl, '_blank', 'noopener,noreferrer')
-      return
-    }
-
-    setHelperBusy(true)
-    setHelperMsg(t('Preparing the Mac helper…'))
-    try {
-      await shareRemoteFile(helperUrl, MAC_HELPER_FILENAME)
-      setHelperMsg(t('Choose AirDrop to your Mac or Save to Files, then open it once on the Mac.'))
-    } catch {
-      const opened = window.open(helperUrl, '_blank', 'noopener,noreferrer')
-      setHelperMsg(opened
-        ? t('The share sheet did not open. Use the new page to save the helper, then open it once on the Mac.')
-        : t('The helper could not be shared. Keep Wi-Fi on and try again, or open this page in Safari.'))
-    } finally {
-      setHelperBusy(false)
-    }
-  }
 
   return (
     <>
       <Section
-        title={t('Mac helper')}
-        footer={t('Video sync stays on your local Wi-Fi. No account, Terminal, Node.js, or administrator password is needed.')}
+        title={t('Pair with Chrome')}
+        footer={t('Open the openGym extension in Chrome on your computer, find the 4-character code in its popup, and enter it here.')}
       >
         <div style={{ padding: '12px 16px' }}>
-          {helperUrl ? (
-            <Button
-              variant="primary"
-              className="grow"
-              onClick={openMacHelper}
-              disabled={helperBusy}
-            >
-              {helperBusy ? t('Preparing…') : t('Set up Mac helper')}
-            </Button>
-          ) : null}
-          <div className="small muted" style={{ marginTop: helperUrl ? 10 : 0, lineHeight: 1.5 }}>
-            {helperUrl
-              ? MOBILE
-                ? t('Tap once. Share it to your Mac or save it to Files, then open it once on the Mac. It stays in the menu bar afterward.')
-                : t('Click once to download it, then open it once on the Mac. It installs for this user, stays in the menu bar, and starts automatically when you sign in. macOS may ask once to confirm opening the downloaded app.')
-              : t('The Mac helper is temporarily unavailable. Please try again later.')}
-          </div>
-          {helperMsg ? (
-            <div className="small muted" role="status" aria-live="polite" style={{ marginTop: 8, lineHeight: 1.5 }}>
-              {helperMsg}
-            </div>
-          ) : null}
-        </div>
-      </Section>
-
-      <Section
-        title={t("Quick pair with Chrome")}
-        footer={t("Open the openGym extension in Chrome on your computer, find the 4-digit code in its popup, and enter it here.")}
-      >
-        <div style={{ padding: "12px 16px" }}>
-          <div className="row" style={{ gap: 8, alignItems: "center" }}>
+          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
             <TextField
               type="text"
               value={pairCode}
-              onChange={e => setPairCode(e.target.value.toUpperCase().slice(0, 4))}
-              placeholder="4-DIGIT CODE"
-              style={{ flex: 1, textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 600, boxSizing: "border-box" }}
+              onChange={e => setPairCode(e.target.value.toUpperCase().replace(/[^2-9A-Z]/g, '').slice(0, 4))}
+              placeholder="4-CHARACTER CODE"
+              autoCapitalize="characters"
+              autoComplete="one-time-code"
+              style={{ flex: 1, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600, boxSizing: 'border-box' }}
             />
             <Button
+              variant="primary"
               onClick={handlePairCode}
               disabled={pairingBusy || pairCode.trim().length !== 4}
             >
-              {pairingBusy ? t("Pairing…") : t("Pair")}
+              {pairingBusy ? t('Pairing…') : t('Pair')}
             </Button>
           </div>
           {pairMsg ? (
-            <div className="small muted" style={{ marginTop: 8, lineHeight: 1.4 }}>{pairMsg}</div>
+            <div className="small muted" role="status" aria-live="polite" style={{ marginTop: 8, lineHeight: 1.4 }}>{pairMsg}</div>
           ) : null}
         </div>
       </Section>
@@ -466,62 +338,21 @@ export default function VideoSyncSettingsPage({ macHelperUrl: configuredHelperUr
           iconTint={statusTone}
           title={t('Computer relay address')}
           subtitle={statusLabel}
-        >
-          {searching ? (
-            <span className="small muted">{t('Searching…')}</span>
-          ) : (
-            <Button size="small" onClick={runDiscovery}>
-              {t('Search')}
-            </Button>
-          )}
-        </Row>
+        />
         <Row
-          title={t('Connection detail')}
+          title={t('What this means')}
           subtitle={statusDetail}
         />
-        <Row
-          title={t('Address in use')}
-          subtitle={effectiveServer || t('Automatic discovery')}
-        />
-      </Section>
-
-      <Section title={t('Relay configuration')}>
-        <div style={{ padding: '12px 16px' }}>
-          <TextField
-            type="text"
-            value={server}
-            onChange={e => setServer(e.target.value)}
-            placeholder="http://192.168.31.124:8787"
-            style={{ width: '100%', marginBottom: 12, boxSizing: 'border-box' }}
-          />
-          {searchMsg && !searching ? (
-            <div className="small muted" style={{ marginBottom: 10 }}>{searchMsg}</div>
-          ) : null}
-          <div className="row" style={{ gap: 8 }}>
-            <Button className="grow" onClick={save}>
-              {t('Save')}
-            </Button>
-            <Button className="grow" onClick={() => testServer(server)}>
-              {t('Test')}
-            </Button>
-            {savedServer || server ? (
-              <Button onClick={clear}>
-                {t('Clear')}
-              </Button>
-            ) : null}
-          </div>
-        </div>
       </Section>
 
       {phase !== 'connected' ? (
         <Section
           title={t('Automatic recovery')}
-          footer={t('The app keeps retrying the relay and refreshes all three connection states every 3 seconds. A restored stream reconnects with a bounded backoff.')}
+          footer={t('The app keeps checking the connection and reconnects automatically.')}
         >
           <div className="small muted" style={{ padding: '12px 16px', lineHeight: 1.5 }}>
-            <div>{t('Chrome extension lost its stream: it reconnects automatically.')}</div>
-            <div>{t('Relay, extension, or phone appears: this page advances automatically.')}</div>
-            <div>{t('If a connection stays missing, use the Mac helper button above and allow Chrome or iPhone Local Network access once.')}</div>
+            <div>{t('Keep the openGym Chrome extension enabled on your computer.')}</div>
+            <div>{t('Keep both devices on the same Wi-Fi and allow Local Network access for openGym.')}</div>
           </div>
         </Section>
       ) : null}

@@ -32,7 +32,7 @@ import { afterScrollRestore, scrollRestorePending } from '../components/Modals.j
 import { effortColor } from '../lib/effort.js'
 import Elapsed from '../components/Elapsed.jsx'
 import { isPaused } from '../lib/workout-pause.js'
-import { readVideoSyncServer, writeVideoSyncServer, discoverVideoSyncRelay } from '../lib/video-sync.js'
+import { readVideoSyncServer } from '../lib/video-sync.js'
 import Icon from '../components/Icon.jsx'
 import { Button, Check, NumberField } from '../components/ui.jsx'
 import { defaultIncrement, weightIncrement, stepWeight } from '../lib/progression.js'
@@ -111,81 +111,34 @@ function PreflightCard() {
 
 
 function VideoSyncSheet({ close }) {
-  const [server, setServer] = useState(() => readVideoSyncServer())
-  const [searching, setSearching] = useState(false)
-  const [searchMsg, setSearchMsg] = useState('')
+  const nav = useNavigate()
+  const paired = Boolean(readVideoSyncServer())
   const offset = useUI(s => s.videoSync?.offset || 0)
   const nudge = useUI(s => s.videoSync?.nudge)
-
-  const runDiscovery = async () => {
-    setSearching(true)
-    setSearchMsg(t('Searching…'))
-    try {
-      const found = await discoverVideoSyncRelay({ timeout: 4000 })
-      if (found) {
-        setServer(found)
-        setSearchMsg('')
-      } else {
-        setSearchMsg(t('Not found'))
-      }
-    } catch {
-      setSearchMsg(t('Not found'))
-    } finally {
-      setSearching(false)
-    }
-  }
-
-  useEffect(() => {
-    if (!readVideoSyncServer()) {
-      runDiscovery()
-    }
-  }, [])
 
   return (
     <div>
       <h3>{t('Video sync')}</h3>
-      <div className="muted small" style={{ marginBottom: 16 }}>
-        {t('Connect your computer Chrome browser on the same Wi-Fi network without any server account.')}
+      <div className="muted small" style={{ marginBottom: 16, lineHeight: 1.5 }}>
+        {paired
+          ? t('This workout syncs automatically with the openGym Chrome extension on your computer.')
+          : t('Pair once in Settings using the 4-character code shown in the openGym Chrome extension.')}
       </div>
       <div style={{ marginBottom: 16 }}>
-        <div className="row between" style={{ marginBottom: 6 }}>
-          <label className="small muted">{t('Computer relay address')}</label>
-          {searching ? (
-            <span className="small muted">{t('Searching…')}</span>
-          ) : (
-            <button
-              type="button"
-              className="small text-btn"
-              style={{ padding: 0, textDecoration: 'underline' }}
-              onClick={runDiscovery}
-            >
-              {t('Search')}
-            </button>
-          )}
-        </div>
-        <input
-          type="text"
-          value={server}
-          onChange={e => setServer(e.target.value)}
-          placeholder="http://192.168.x.x:8787"
-          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)' }}
-        />
-        {searchMsg && !searching ? (
-          <div className="small muted" style={{ marginTop: 4 }}>{searchMsg}</div>
-        ) : null}
-      </div>
-      <div className="row" style={{ gap: 8, marginBottom: 20 }}>
-        <button className="primary grow" onClick={() => {
-          writeVideoSyncServer(server)
-          close()
-        }}>{t('Save')}</button>
-        {server ? (
-          <button onClick={() => {
-            writeVideoSyncServer('')
-            setServer('')
+        <Button
+          variant={paired ? 'secondary' : 'primary'}
+          className="grow"
+          style={{ width: '100%' }}
+          onClick={() => {
             close()
-          }}>{t('Clear')}</button>
-        ) : null}
+            nav('/settings/video-sync')
+          }}
+        >
+          {paired ? t('Video sync settings') : t('Pair in Settings')}
+        </Button>
+      </div>
+      <div className="row" style={{ gap: 8, marginBottom: 16 }}>
+        <Button className="grow" onClick={close}>{t('Done')}</Button>
       </div>
       {typeof nudge === 'function' ? (
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
@@ -1778,7 +1731,7 @@ function ActiveWorkout() {
         sub: videoOnline ? t('Video sync') + ' · ' + t('Connected') : null,
           onClick: isPaused(A) ? resumeSession : pauseSession },
         !editing && !A.backfill && { icon: 'tv', label: t('Video sync'),
-          sub: videoOnline ? t('Connected') : (readVideoSyncServer() ? t('Relay set') : t('Not configured')),
+          sub: videoOnline ? t('Connected') : (readVideoSyncServer() ? t('Paired') : t('Not paired')),
           onClick: openVideoSyncSheet },
         { icon: 'pencil', label: t('Rename workout'), onClick: renameWorkoutSheet },
         { icon: 'layout', label: t('Layout'), sub: LAYOUT_LABEL[workoutView] || LAYOUT_LABEL.cards, onClick: openLayoutMenu },
