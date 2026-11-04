@@ -146,3 +146,29 @@ test('the relay keeps playback intent and the video the app named', () => {
   assert.equal(end.sessionId, null)
   assert.equal(end.videoUrl, null)
 })
+
+test("relay generates and verifies 4-character pairing code", async t => {
+  const { server } = createRelay()
+  t.after(() => server.close())
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve))
+  const port = server.address().port
+
+  // 1. Get code
+  const codeRes = await fetch(`http://127.0.0.1:${port}/pair/code`)
+  assert.equal(codeRes.status, 200)
+  const codeData = await codeRes.json()
+  assert.equal(codeData.ok, true)
+  assert.match(codeData.code, /^[2-9A-Z]{4}$/)
+  assert.ok(codeData.port > 0)
+
+  // 2. Verify code
+  const verifyRes = await fetch(`http://127.0.0.1:${port}/pair/verify?code=${codeData.code}`)
+  assert.equal(verifyRes.status, 200)
+  const verifyData = await verifyRes.json()
+  assert.equal(verifyData.ok, true)
+  assert.equal(verifyData.code, codeData.code)
+
+  // 3. Verify bad code
+  const badRes = await fetch(`http://127.0.0.1:${port}/pair/verify?code=WRONG`)
+  assert.equal(badRes.status, 404)
+})

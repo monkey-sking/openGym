@@ -8,11 +8,45 @@
 body { width: 340px; margin: 0; padding: 16px; font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 h1 { margin: 0 0 4px; font-size: 15px; }
 .lead { margin: 0 0 14px; opacity: .75; }
+
+.pair-card {
+  background: rgba(127,127,127,.08);
+  border: 1px solid rgba(127,127,127,.25);
+  border-radius: 10px;
+  padding: 12px;
+  text-align: center;
+  margin-bottom: 14px;
+}
+.pair-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  opacity: .7;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.pair-code {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: .18em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #1f6feb;
+  margin: 4px 0 6px;
+  user-select: all;
+}
+.pair-sub {
+  margin: 0;
+  font-size: 11px;
+  opacity: .75;
+  line-height: 1.35;
+}
+
 label { display: block; margin-bottom: 4px; font-weight: 600; }
 input { width: 100%; box-sizing: border-box; padding: 7px 8px; border: 1px solid rgba(127,127,127,.45); border-radius: 7px; background: transparent; color: inherit; font: inherit; }
 .row { display: flex; gap: 8px; margin: 10px 0 12px; }
 button { flex: 1; padding: 7px 8px; border: 1px solid rgba(127,127,127,.45); border-radius: 7px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 button.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+
 .status { margin: 0; font-weight: 600; }
 .status.idle { opacity: .7; }
 .status.ok { color: var(--ok); }
@@ -21,9 +55,20 @@ button.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
 .detail { margin: 4px 0 0; opacity: .7; min-height: 1.4em; word-break: break-word; }
 .next { margin: 6px 0 0; color: var(--warn); min-height: 1.4em; }
 .next:empty { display: none; }
-.help { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--muted); opacity: .82; }
-.help strong { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
-.help ol { margin: 7px 0 9px; padding-left: 20px; }
-.help li { margin-bottom: 4px; }
-.help p { margin: 7px 0 0; }
+
+details.advanced {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--muted);
+  font-size: 12px;
+}
+details.advanced summary {
+  cursor: pointer;
+  opacity: .75;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+.advanced-body {
+  margin-top: 8px;
+}
 code { font-size: 12px; }

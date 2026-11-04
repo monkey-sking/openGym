@@ -47,10 +47,27 @@ function renderCountdown () {
   }
 }
 
+
+async function fetchPairCode () {
+  const server = parseServer() || "http://127.0.0.1:8787"
+  try {
+    const res = await fetch(server + "/pair/code")
+    if (res.ok) {
+      const data = await res.json()
+      if (data?.code && $("pair-code")) {
+        $("pair-code").textContent = data.code
+        return
+      }
+    }
+  } catch {}
+  if ($("pair-code")) $("pair-code").textContent = "----"
+}
+
 async function load () {
   const { serverUrl, status } = await chrome.storage.local.get(['serverUrl', 'status'])
   $('server').value = serverUrl || 'http://127.0.0.1:8787'
   render(status)
+  fetchPairCode()
 }
 
 function parseServer () {

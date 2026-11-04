@@ -13,11 +13,13 @@
 import http from 'node:http'
 import os from 'node:os'
 import { randomUUID } from 'node:crypto'
+import { createPairingRegistry } from './pairing.mjs'
 
 export const PORT = Number(process.env.OPEN_GYM_SYNC_PORT) || 8787
 export const PHONE_APP_STALE_MS = 6000
 
 export function createRelay({ now = Date.now, phoneAppStaleMs = PHONE_APP_STALE_MS } = {}) {
+  const pairing = createPairingRegistry({ now })
   // Each relay process numbers its own commands. The phone and extension use this to tell a
   // restarted relay's seq 1 from the seq 87 they had already applied.
   const epoch = randomUUID()
@@ -124,6 +126,28 @@ export function createRelay({ now = Date.now, phoneAppStaleMs = PHONE_APP_STALE_
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
     const pathname = url.pathname.replace(/\/+$/, '') || '/'
 
+    if (req.method === 'GET' && pathname === '/pair/code') {
+      const ips = getLanIps()
+      const record = pairing.register({ ips, port: PORT, url: `http://127.0.0.1:${PORT}` })
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+      res.end(JSON.stringify({ ok: true, code: record.code, expiresAt: record.expiresAt, ips, port: PORT }))
+      return
+    }
+
+    if (req.method === 'GET' && pathname === '/pair/verify') {
+      const code = url.searchParams.get('code')
+      const record = pairing.lookup(code)
+      if (!record) {
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: false, error: 'invalid or expired pairing code' }))
+        return
+      }
+      pairing.bind(code)
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+      res.end(JSON.stringify({ ok: true, code: record.code, ips: record.ips, port: record.port, url: record.url }))
+      return
+    }
+
     if (req.method === 'GET' && pathname === '/health') {
       res.writeHead(200, {
         'Content-Type': 'application/json',
@@ -187,7 +211,7 @@ export function createRelay({ now = Date.now, phoneAppStaleMs = PHONE_APP_STALE_
     res.end(JSON.stringify({ error: 'not found' }))
   })
 
-  return { server, getLanIps, getState: () => state, handleCommand }
+  return { server, getLanIps, getState: () => state, handleCommand, pairing }
 }
 
 if (process.argv[1] && process.argv[1].endsWith('local-server.mjs')) {
