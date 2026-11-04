@@ -8,6 +8,7 @@ import {
   readVideoSyncServer,
   writeVideoSyncServer,
   probeVideoSyncServer,
+  verifyPairingCode,
 } from '../lib/video-sync.js'
 import { MOBILE, nativePlatform, shareRemoteFile } from '../lib/mobile.js'
 import { useUI } from '../store/useUI.js'
@@ -152,6 +153,37 @@ export default function VideoSyncSettingsPage({ macHelperUrl: configuredHelperUr
   const [helperMsg, setHelperMsg] = useState('')
   const offset = useUI(s => s.videoSync?.offset || 0)
   const nudge = useUI(s => s.videoSync?.nudge)
+  const [pairCode, setPairCode] = useState("")
+  const [pairingBusy, setPairingBusy] = useState(false)
+  const [pairMsg, setPairMsg] = useState("")
+
+  const handlePairCode = async () => {
+    const code = (pairCode || "").trim().toUpperCase()
+    if (!code || code.length !== 4) {
+      setPairMsg(t("Please enter a 4-character pairing code."))
+      return
+    }
+    setPairingBusy(true)
+    setPairMsg(t("Verifying pairing code…"))
+    try {
+      const resolved = await verifyPairingCode(code, { candidateUrl: server || effectiveServer })
+      if (resolved) {
+        writeVideoSyncServer(resolved)
+        setServer(resolved)
+        setSavedServer(resolved)
+        setEffectiveServer(resolved)
+        setPairMsg(t("Paired successfully!"))
+        testServer(resolved)
+      } else {
+        setPairMsg(t("Pairing code not found or expired. Check Chrome extension."))
+      }
+    } catch {
+      setPairMsg(t("Pairing failed. Ensure phone and computer are on the same Wi-Fi."))
+    } finally {
+      setPairingBusy(false)
+    }
+  }
+
 
   useEffect(() => {
     let canceled = false
@@ -395,6 +427,32 @@ export default function VideoSyncSettingsPage({ macHelperUrl: configuredHelperUr
             <div className="small muted" role="status" aria-live="polite" style={{ marginTop: 8, lineHeight: 1.5 }}>
               {helperMsg}
             </div>
+          ) : null}
+        </div>
+      </Section>
+
+      <Section
+        title={t("Quick pair with Chrome")}
+        footer={t("Open the openGym extension in Chrome on your computer, find the 4-digit code in its popup, and enter it here.")}
+      >
+        <div style={{ padding: "12px 16px" }}>
+          <div className="row" style={{ gap: 8, alignItems: "center" }}>
+            <TextField
+              type="text"
+              value={pairCode}
+              onChange={e => setPairCode(e.target.value.toUpperCase().slice(0, 4))}
+              placeholder="4-DIGIT CODE"
+              style={{ flex: 1, textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 600, boxSizing: "border-box" }}
+            />
+            <Button
+              onClick={handlePairCode}
+              disabled={pairingBusy || pairCode.trim().length !== 4}
+            >
+              {pairingBusy ? t("Pairing…") : t("Pair")}
+            </Button>
+          </div>
+          {pairMsg ? (
+            <div className="small muted" style={{ marginTop: 8, lineHeight: 1.4 }}>{pairMsg}</div>
           ) : null}
         </div>
       </Section>

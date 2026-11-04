@@ -397,6 +397,38 @@ export async function discoverVideoSyncRelay({ timeout = 4000 } = {}) {
  * Probes a candidate relay server's /health endpoint.
  * Works on web and native iOS/Android through nativeFetch.
  */
+
+/**
+ * Resolves a 4-digit pairing code by querying either the local candidate or cloud relay.
+ * Returns the resolved server URL (e.g. http://192.168.1.50:8787) or null.
+ */
+export async function verifyPairingCode(code, { candidateUrl = null, timeout = 3000 } = {}) {
+  const norm = String(code || "").trim().toUpperCase().replace(/[^2-9A-Z]/g, "")
+  if (!norm || norm.length !== 4) return null
+
+  // 1. If candidateUrl provided (e.g. localhost or previously known LAN IP)
+  const candidates = candidateUrl ? [candidateUrl] : ["http://127.0.0.1:8787", "http://localhost:8787"]
+  for (const base of candidates) {
+    try {
+      const url = base.replace(/\/+$/, "") + "/pair/verify?code=" + encodeURIComponent(norm)
+      const res = await nativeFetch(url, {
+        method: "GET",
+        signal: AbortSignal.timeout ? AbortSignal.timeout(timeout) : undefined
+      })
+      if (res.ok) {
+        const data = await res.json().catch(() => null)
+        if (data?.ok && (data.url || (data.ips?.[0] && data.port))) {
+          if (data.ips?.[0] && data.port) {
+            return "http://" + data.ips[0] + ":" + data.port
+          }
+          return data.url
+        }
+      }
+    } catch {}
+  }
+  return null
+}
+
 export async function probeVideoSyncServer(serverUrl, { timeout = 3000 } = {}) {
   const base = String(serverUrl || '').trim().replace(/\/+$/, '')
   if (!base) return null

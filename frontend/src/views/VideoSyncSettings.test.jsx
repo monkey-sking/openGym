@@ -311,3 +311,14 @@ describe('automatic status recovery', () => {
     expect(host.textContent).not.toContain('Relay not running or unreachable')
   })
 })
+
+describe("4-digit pairing code", () => {
+  it("renders the pairing input and button", async () => {
+    await mount()
+    expect(host.textContent).toContain("Quick pair with Chrome")
+    const pairBtn = [...host.querySelectorAll("button")]
+      .find(b => b.textContent.trim() === "Pair")
+    expect(pairBtn).toBeTruthy()
+    expect(pairBtn.disabled).toBe(true)
+  })
+})
