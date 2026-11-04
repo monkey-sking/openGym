@@ -4,34 +4,25 @@ Pauses the follow-along video on the computer when the workout pauses, and pause
 when the video does. The app's half is `frontend/src/lib/video-sync.js`; this folder is the half
 that talks to the `<video>` element.
 
-## Set up the Mac helper
+## Plan A setup: Chrome extension + 4-character pairing code
 
-The normal path is one action: open **openGym → Settings → Video sync** and press
-**Set up Mac helper**, then open the downloaded app once.
+The ordinary-user path requires zero terminal commands, zero Node.js installations,
+and zero manual IP addresses:
 
-On its first launch, the helper installs itself for the current user at
-`~/Applications/openGym Video Sync.app`, adds the user LaunchAgent
-`~/Library/LaunchAgents/ai.opengym.video-sync-relay.plist`, and starts with that user at sign-in.
-It stays in the menu bar. No Terminal, Node.js, account, or administrator password is involved.
-macOS may ask once to confirm opening an app downloaded from the internet; that is the only
-security confirmation required.
+1. **Install the extension**: install from Chrome Web Store (or load unpacked in developer mode).
+2. **Open the extension popup**: a prominent **4-character pairing code** is displayed
+   (e.g., `A3K9`, 10-minute validity, case-insensitive).
+3. **Pair in openGym**: open the app on phone → **Settings → Video sync → Quick pair with Chrome**.
+4. **Enter code and tap Pair**: phone automatically contacts candidate LAN addresses, verifies
+   the pairing code, and binds the relay connection.
 
-The menu-bar menu still exposes **Start When I Sign In**, **Restart Relay**, connection help, and
-**Uninstall openGym Video Sync…** for diagnosis or opt-out. These are not setup steps ordinary
-users need to understand.
+Advanced users can click "Advanced / Manual IP" in the popup to customize the server address.
 
-The repository does not contain a hosted installer. A release build must set
-`VITE_VIDEO_SYNC_MAC_HELPER_URL` to the stable HTTPS URL of the helper zip. The local build is
-ad-hoc signed, so it is suitable for development, not public distribution.
+## Mac helper (optional background service)
 
-## Install the Chrome extension once
-
-1. Open `chrome://extensions` and turn on **Developer mode**.
-2. **Load unpacked** → choose this folder (`tools/video-sync-extension`).
-3. Open the extension, enter the openGym server's address (`https://…`, the same site the app is
-   served from) and **Save**.
-4. Sign in to that server in this Chrome profile. The extension reuses that session; it has no
-   password of its own.
+For users who prefer a persistent system daemon running even when Chrome is closed,
+the native helper app at `~/Applications/openGym Video Sync.app` remains available as an
+optional background relay with its user LaunchAgent.
 
 Chrome grants access to the server host on Save. The extension reads the `gymsid` /
 `__Host-gymsid` session cookie for that host and sends it as a bearer token, which is the same

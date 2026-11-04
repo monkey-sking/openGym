@@ -5,31 +5,34 @@ the athlete stops for a phone call, pauses the workout, and the video runs on (o
 and the session's clock keeps counting). **Pausing either one now pauses the other**, and resuming
 either one resumes the other.
 
-## Normal setup: local Wi-Fi, no server or account
+## Normal setup: Plan A (Chrome Web Store extension + 4-character pairing code)
 
-The ordinary-user path is one entry in the app: **Settings → Video sync → Set up Mac helper**.
-Open the downloaded **openGym Video Sync** app once. On first launch it:
+The ordinary-user path requires zero terminal commands, zero Node.js installations,
+and zero manual IP addresses:
 
-- copies itself to `~/Applications/openGym Video Sync.app`;
-- installs only the current user's
-  `~/Library/LaunchAgents/ai.opengym.video-sync-relay.plist` LaunchAgent;
-- sets `RunAtLoad` so the relay starts when that user signs in;
-- stays in the menu bar and listens on the local network.
+1. **Install the Chrome extension** from Chrome Web Store (or load unpacked in developer mode).
+2. **Click the extension icon** in Chrome: it displays a prominent **4-character pairing code**
+   (e.g., `A3K9`, case-insensitive, excludes ambiguous characters like 0/O/1/I/L).
+3. **Open openGym on phone**: go to **Settings → Video sync → Quick pair with Chrome**.
+4. **Type the 4-character code** and tap **Pair**: the phone tests local network candidates
+   announced by the computer's relay and automatically binds the connection.
 
-The user does not start a relay in Terminal, install Node.js, enter an account, choose an "at
-login" option, or supply an administrator password. macOS may require one confirmation when the
-browser-downloaded app is first opened. Setup errors are shown by the helper; a successful setup
-adds no second wizard.
+Advanced users can still unfold "Advanced / Manual IP" to inspect or override the exact address.
 
-The helper package ships with the app at
-`frontend/public/downloads/openGym-Video-Sync.zip`. The settings page uses that same-origin file by
-default. On iPhone it fetches the package and opens the system share sheet, so the athlete can
-AirDrop it to the Mac or save it to Files; the web build downloads the same file directly. No
-Terminal, Node.js, account, or administrator password is involved.
+### Pairing protocol
 
-`VITE_VIDEO_SYNC_MAC_HELPER_URL` remains an optional deployment override for a stable HTTPS
-mirror. Public distribution still needs Developer ID signing and notarization; ad-hoc development
-builds can trigger Gatekeeper.
+- The relay generates a short code valid for 10 minutes via `/pair/code`.
+- The phone submits the code to `/pair/verify?code=...` across candidate LAN IPs announced
+  by Bonjour discovery or default subnet probing.
+- Verification binds the phone, registers its presence, and returns the canonical target URL.
+
+## Mac helper / standalone relay (optional background service)
+
+For users who want the video relay always running in the background without keeping Chrome
+open in the foreground, the native helper app at `~/Applications/openGym Video Sync.app`
+remains available as an optional convenience relay, listening on the same protocol port.
+It installs a lightweight user LaunchAgent `ai.opengym.video-sync-relay.plist`.
+Ordinary users using the Chrome extension do not need this helper.
 
 ## Developer relay fallbacks
 
