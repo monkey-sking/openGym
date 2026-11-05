@@ -336,7 +336,7 @@ export default function VideoSyncSettingsPage() {
         <Row
           icon="tv"
           iconTint={statusTone}
-          title={t('Computer relay address')}
+          title={t('Computer connection')}
           subtitle={statusLabel}
         />
         <Row

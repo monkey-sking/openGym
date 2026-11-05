@@ -132,7 +132,7 @@ export const SEARCH = [
   { page: 'look', title: 'Body weight', icon: 'scale', tint: 'var(--green)', kw: 'weight card home' },
   { page: 'look', title: 'Seasonal themes', icon: 'pumpkin', tint: 'var(--orange)', kw: 'seasonal season holiday halloween theme decoration' },
   // Video sync (phone app only)
-  { page: 'video-sync', title: 'Computer relay address', icon: 'tv', tint: 'var(--blue)', kw: 'video sync computer chrome extension tv pause resume bilibili youtube relay', when: c => !!c.mobile },
+  { page: 'video-sync', title: 'Computer connection', icon: 'tv', tint: 'var(--blue)', kw: 'video sync computer chrome extension tv pause resume bilibili youtube pairing', when: c => !!c.mobile },
   // Seasonal themes
   { page: 'themes', title: 'Halloween', icon: 'pumpkin', tint: 'var(--orange)', kw: 'halloween seasonal theme spooky spider pumpkin bats witch october decoration', opts: ['Auto', 'On', 'Off'] },
   { page: 'themes', title: 'Also during workouts', icon: 'play', tint: 'var(--green)', kw: 'halloween seasonal workout training decoration' },
