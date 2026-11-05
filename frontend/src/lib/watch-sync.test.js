@@ -51,7 +51,11 @@ describe('the snapshot', () => {
       total: 45,
       label: 'Plank',
     })
-    expect(buildSnapshot(state(), { work: { ...work, paused: true } }).active.work).toBeNull()
+    expect(buildSnapshot(state(), { work: { ...work, paused: true } }).active.work).toEqual({
+      remainingSec: 39,
+      total: 45,
+      label: 'Plank',
+    })
     expect(buildSnapshot(state(), { work: { ...work, ready: true } }).active.work).toBeNull()
     expect(buildSnapshot(state()).active.work).toBeNull()
   })

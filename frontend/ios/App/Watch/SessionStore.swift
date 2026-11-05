@@ -468,6 +468,17 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
                 let end = Date(timeIntervalSince1970: rest.endsAt / 1000)
                 if end != self.restEndsAt { self.startRest(until: end, notify: true) }
             }
+            // The pause can be the first timed-set snapshot this watch sees (it was opened after
+            // the phone paused). Keep the phone's frozen remainder instead of showing a blank timer.
+            if nowPaused, next.workout?.id == snap.active?.id,
+               self.pausedPhoneWorkRemaining == nil,
+               let work = snap.active?.work,
+               let remaining = work.remainingSec {
+                self.pausedPhoneWorkRemaining = max(0, remaining)
+                self.phoneWorkEndsAt = nil
+                self.phoneWorkStartedAt = nil
+                self.phoneWorkLabel = work.label
+            }
             if !nowPaused, next.workout?.id == snap.active?.id {
                 self.mirrorPhoneWork(snap.active?.work)
             }
@@ -725,13 +736,13 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
     /// Mirror the phone's timed-set countdown. It intentionally has no scheduled callback: at zero
     /// the phone ends the set and its next snapshot advances the watch exactly once.
     private func mirrorPhoneWork(_ work: WorkInfo?) {
-        guard let work else {
+        guard let work, let endsAt = work.endsAt else {
             phoneWorkEndsAt = nil
             phoneWorkStartedAt = nil
             phoneWorkLabel = nil
             return
         }
-        let end = Date(timeIntervalSince1970: work.endsAt / 1000)
+        let end = Date(timeIntervalSince1970: endsAt / 1000)
         phoneWorkEndsAt = end
         phoneWorkStartedAt = work.total.map { end.addingTimeInterval(-$0) }
         phoneWorkLabel = work.label

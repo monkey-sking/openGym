@@ -708,7 +708,7 @@ describe('startWatchSync', () => {
     } finally { vi.useRealTimers() }
   })
 
-  it('keeps a startup conflict queued until it can resend the phone workout', async () => {
+  it('keeps a startup conflict queued until a retry resends the phone workout', async () => {
     vi.useFakeTimers()
     try {
       const b = bridge()
@@ -728,23 +728,17 @@ describe('startWatchSync', () => {
 
       expect(b.drain).toHaveBeenCalledTimes(1)
       expect(b.ack).not.toHaveBeenCalled()
-      expect(b.sendSnapshot).toHaveBeenCalledTimes(1)
+      // The failed startup send retries on its own, so the authoritative snapshot is not lost.
+      expect(b.sendSnapshot).toHaveBeenCalledTimes(2)
 
-      // The failed startup send left the conflict queued. The watch-event path drains it (kept, not
-      // acked) and resends the phone's authoritative snapshot, which names the watch workout as
-      // discarded.
+      // The failed startup send left the conflict queued. The retry resends the phone's
+      // authoritative snapshot, which names the watch workout as discarded.
       heard.watchEvent({})
       await vi.runAllTimersAsync()
 
-      expect(b.sendSnapshot).toHaveBeenCalledTimes(2)
       expect(JSON.parse(b.sendSnapshot.mock.calls.at(-1)[0].json).active.id).toBe('phone-1')
       expect(JSON.parse(b.sendSnapshot.mock.calls.at(-1)[0].json).discarded).toContain('watch-1')
-      expect(b.ack).not.toHaveBeenCalled()
-
-      // Now that the watch has been told which workout is authoritative, the next drain can ack.
-      heard.watchEvent({})
-      await drainWatchEvents()
-      await vi.runAllTimersAsync()
+      // Once the retry has told the watch which workout is authoritative, that same drain can ack.
       expect(b.ack).toHaveBeenCalledWith({ ids: [conflict.id] })
       stop()
     } finally { vi.useRealTimers() }

@@ -34,6 +34,8 @@ export const SNAPSHOT_VERSION = 1
 const APPLIED_KEY = 'gym_watch_applied'
 const APPLIED_MAX = 300
 const SEND_DEBOUNCE_MS = 400
+const SNAPSHOT_RETRY_MS = 700
+const MAX_SNAPSHOT_RETRIES = 3
 export const OPEN_RETRY_MS = 1000
 const CONFLICT_KEY = 'gym_watch_conflict'
 const ABANDONED_KEY = 'gym_watch_abandoned'
@@ -182,15 +184,10 @@ export function buildSnapshot(S, { timer = null, work = null, ready = null } = {
       restSec: num(S.restSec) || 0,
       // a rest running on the phone, so the watch counts down the same one
       rest: timer && !timer.paused && !timer.ready && num(timer.endsAt) ? { endsAt: timer.endsAt } : null,
-      // A timed set running on the phone. Display only on the watch: the phone owns the set and
-      // logs it, so the watch must never run its own auto-complete hold from this snapshot.
-      work: work && !work.paused && !work.ready && num(work.endsAt)
-        ? {
-            endsAt: num(work.endsAt),
-            ...(num(work.total) ? { total: num(work.total) } : {}),
-            ...(work.label ? { label: String(work.label) } : {}),
-          }
-        : null,
+      // A timed set on the phone. Display only on the watch: the phone owns the set and logs it,
+      // so the watch must never run its own auto-complete hold from this snapshot. A pause keeps
+      // the frozen remainder so a watch opened after the pause still shows the number people use.
+      work: watchWork(work),
       // A pause travels with its revision: the watch keeps its own just-tapped pause until a
       // snapshot at least as new arrives, and a phone resume (a higher revision) always wins.
       ...(num(A.pausedAt) ? { pausedAt: num(A.pausedAt) } : {}),
@@ -202,6 +199,19 @@ export function buildSnapshot(S, { timer = null, work = null, ready = null } = {
       ...(healthType ? { healthType } : {}),
     },
   }
+}
+
+function watchWork (work) {
+  if (!work || work.ready) return null
+  const details = {
+    ...(num(work.total) ? { total: num(work.total) } : {}),
+    ...(work.label ? { label: String(work.label) } : {}),
+  }
+  if (work.paused) {
+    const remaining = num(work.left)
+    return remaining == null ? null : { remainingSec: Math.max(0, remaining), ...details }
+  }
+  return num(work.endsAt) ? { endsAt: num(work.endsAt), ...details } : null
 }
 
 /**
@@ -706,8 +716,14 @@ export async function startWatchSync ({ useStore, useUI, onWatchError = null, si
     tm = null
     if (stopped) return { ok: false, stage: 'snapshot', reason: 'stopped' }
     // Not before the store has its copy: an empty one would tell the watch its workout is over.
-    if (!linked) return { ok: false, stage: 'snapshot', reason: 'not_linked' }
-    if (!storeReady()) return { ok: false, stage: 'snapshot', reason: 'store_not_ready' }
+    if (!linked) {
+      retrySnapshot()
+      return { ok: false, stage: 'snapshot', reason: 'not_linked' }
+    }
+    if (!storeReady()) {
+      retrySnapshot()
+      return { ok: false, stage: 'snapshot', reason: 'store_not_ready' }
+    }
     let snapshotSent = false
     try {
       const S = useStore.getState().S
@@ -738,6 +754,7 @@ export async function startWatchSync ({ useStore, useUI, onWatchError = null, si
             ...(r?.error || r?.message ? { message: String(r.error || r.message) } : {}),
           }
           reportWatchError(failure)
+          retrySnapshot()
           return failure
         }
         lastSent = json
@@ -746,6 +763,7 @@ export async function startWatchSync ({ useStore, useUI, onWatchError = null, si
         // its remaining events are obsolete and may be acknowledged on the next drain.
         if (conflict?.wid) abandonWatchWorkout(conflict.wid)
       }
+      snapshotSucceeded()
       // The workout's animations, once per workout and exercise (the native side remembers).
       const clips = prefs.enabled ? clipsFor(S) : []
       const key = S.active ? S.active.id + '|' + clips.map(c => c.exId).join(',') : ''
@@ -763,6 +781,7 @@ export async function startWatchSync ({ useStore, useUI, onWatchError = null, si
     } catch (error) {
       const failure = { ok: false, stage: 'snapshot', reason: 'send_failed', message: String(error?.message || error || '') }
       reportWatchError(failure)
+      retrySnapshot()
       return failure
     }
   }
@@ -770,6 +789,7 @@ export async function startWatchSync ({ useStore, useUI, onWatchError = null, si
   // then sends the current state itself; startWatchApp runs only after that promise has resolved.
   const enqueueSend = () => {
     if (stopped) return Promise.resolve({ ok: false, stage: 'snapshot', reason: 'stopped' })
+    clearSnapshotRetry()
     clearTimeout(tm)
     tm = null
     const run = sendChain.then(send, send)
@@ -780,6 +800,33 @@ export async function startWatchSync ({ useStore, useUI, onWatchError = null, si
       message: String(error?.message || error || ''),
     }))
     return run
+  }
+  // A dropped WatchConnectivity update must not leave a countdown missing until the next state
+  // change. Retry a few times with a widening gap; a successful snapshot resets the budget.
+  let snapshotRetryTimer = null
+  let snapshotRetryCount = 0
+  const clearSnapshotRetry = () => {
+    if (snapshotRetryTimer != null) {
+      clearTimeout(snapshotRetryTimer)
+      snapshotRetryTimer = null
+    }
+  }
+  const snapshotSucceeded = () => {
+    snapshotRetryCount = 0
+    clearSnapshotRetry()
+  }
+  const retrySnapshot = () => {
+    if (stopped || snapshotRetryTimer != null || snapshotRetryCount >= MAX_SNAPSHOT_RETRIES) return
+    const delay = SNAPSHOT_RETRY_MS * (snapshotRetryCount + 1)
+    snapshotRetryCount += 1
+    snapshotRetryTimer = setTimeout(async () => {
+      snapshotRetryTimer = null
+      if (stopped) return
+      const state = await checkLink()
+      if (stopped) return
+      if (state.ok) enqueueSend()
+      else retrySnapshot()
+    }, delay)
   }
   const flushSnapshot = async () => {
     clearTimeout(tm)
@@ -1025,7 +1072,7 @@ export async function startWatchSync ({ useStore, useUI, onWatchError = null, si
   stopSync = () => {
     stopped = true
     onStoreChange = null
-    clearTimeout(tm); clearOpenRetry(); openAgain = false; pendingOpen = null
+    clearTimeout(tm); clearSnapshotRetry(); clearOpenRetry(); openAgain = false; pendingOpen = null
     stopResources()
   }
   // A forced resend is needed when the watch reports a conflicting start: its local snapshot has
