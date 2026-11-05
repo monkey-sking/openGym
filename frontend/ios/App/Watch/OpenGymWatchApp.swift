@@ -1189,6 +1189,16 @@ struct RestView: View {
 /// resumes. The elapsed timer and any rest or hold are frozen behind this screen.
 struct PausedView: View {
     @EnvironmentObject var store: SessionStore
+    @ScaledMetric(relativeTo: .largeTitle) private var countdownSize: CGFloat = 42
+
+    /// The part that was running when the workout paused. Keep its remaining time as the visual
+    /// focus: the whole-workout elapsed clock is useful context, not the number people train by.
+    private var timer: (left: TimeInterval, caption: String)? {
+        if let rest = store.pausedRestLeft { return (rest, "Rest · paused") }
+        if let work = store.pausedPhoneWorkLeft { return (work, "Set timer · paused") }
+        if let hold = store.pausedHoldLeft { return (hold, "Hold · paused") }
+        return nil
+    }
 
     var body: some View {
         VStack(spacing: 6) {
@@ -1209,39 +1219,24 @@ struct PausedView: View {
                     .minimumScaleFactor(0.7)
                     .multilineTextAlignment(.center)
             }
+            if let timer {
+                VStack(spacing: 0) {
+                    Text(verbatim: PausedView.clock(timer.left))
+                        .font(.system(size: countdownSize, weight: .semibold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(Color.orange)
+                        .minimumScaleFactor(0.55)
+                        .lineLimit(1)
+                    Text(timer.caption)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+            }
             if let elapsed = store.pausedElapsed {
                 HStack(spacing: 4) {
                     Image(systemName: "clock")
                     Text(verbatim: PausedView.clock(elapsed))
-                }
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .accessibilityElement(children: .combine)
-            }
-            if let rest = store.pausedRestLeft {
-                HStack(spacing: 4) {
-                    Text("Rest")
-                    Text(verbatim: PausedView.clock(rest))
-                }
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .accessibilityElement(children: .combine)
-            } else if let work = store.pausedPhoneWorkLeft {
-                HStack(spacing: 4) {
-                    if let label = store.phoneWorkLabel, !label.isEmpty {
-                        Text(verbatim: label)
-                    } else {
-                        Text("Set")
-                    }
-                    Text(verbatim: PausedView.clock(work))
-                }
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .accessibilityElement(children: .combine)
-            } else if let hold = store.pausedHoldLeft {
-                HStack(spacing: 4) {
-                    Text("Hold")
-                    Text(verbatim: PausedView.clock(hold))
+                    if timer != nil { Text("workout") }
                 }
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
