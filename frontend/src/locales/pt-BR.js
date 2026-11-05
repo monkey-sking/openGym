@@ -1682,6 +1682,16 @@ export const PT_BR_OVERRIDES = {
   'That isn’t a Bilibili video link. Paste a bilibili.com/video/BV… link.': 'Isso não é um link de vídeo do Bilibili. Cole um link bilibili.com/video/BV…',
   // --- Settings → Video sync (phone + computer browser) ---
   'Connect your computer Chrome browser on the same Wi-Fi network without any server account.': 'Conecte o navegador Chrome do computador à mesma rede Wi-Fi, sem nenhuma conta de servidor.',
+  "Default video for this plan (optional)": "Default video for this plan (optional)",
+  "Hide each exercise": "Hide each exercise",
+  "Link": "Link",
+  "No video": "No video",
+  "Not a video link": "Not a video link",
+  "Set a video for each exercise": "Set a video for each exercise",
+  "Set the video each plan plays before you train. Give a whole plan one video, or open it and give each exercise its own. If an exercise has none, the workout falls back to the exercise's own link, a link in its note, or a default tutorial.": "Set the video each plan plays before you train. Give a whole plan one video, or open it and give each exercise its own. If an exercise has none, the workout falls back to the exercise's own link, a link in its note, or a default tutorial.",
+  "Starts at {0}": "Starts at {0}",
+  "Video for this exercise (optional)": "Video for this exercise (optional)",
+  "Videos for your plans": "Videos for your plans",
 }
 
 export default { ...pt, ...PT_BR_OVERRIDES }

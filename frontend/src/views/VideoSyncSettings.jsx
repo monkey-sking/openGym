@@ -1,5 +1,7 @@
 // Settings → Video sync: pair once, then diagnose the phone, Chrome and workout link.
-// Pairing belongs here rather than in the middle of a workout.
+// Pairing belongs here rather than in the middle of a workout. The video each routine plays is
+// also chosen here, before a workout starts, so a session never has to guess its video (handover
+// items 3 and 4).
 import { useState, useEffect } from 'react'
 import { t } from '../lib/i18n.js'
 import { Section, Row, Button, TextField } from '../components/ui.jsx'
@@ -8,7 +10,12 @@ import {
   writeVideoSyncServer,
   probeVideoSyncServer,
   verifyPairingCode,
+  extractVideoUrl,
+  parseVideoStartSec,
 } from '../lib/video-sync.js'
+import { linkKind } from '../lib/media-refs.js'
+import { defaultExerciseVideoUrl, EXIDX } from '../lib/exercises.js'
+import { useStore } from '../store/useStore.js'
 import { MOBILE, nativePlatform } from '../lib/mobile.js'
 import { useUI } from '../store/useUI.js'
 
@@ -76,6 +83,163 @@ export function discoveryUrl(result) {
   const host = rawHost.includes(':') && !rawHost.startsWith('[') ? `[${rawHost}]` : rawHost
   return `http://${host}:${port}`
 }
+
+// The video a routine's exercise plays, resolved the same way a running session resolves it
+// (lib/video-sync.js videoSyncUrl): the exercise config's own link, a link written in its note,
+// the default tutorial for that exercise, or else empty. A settings-time view of it, before a
+// workout exists.
+export function exerciseVideoLink(ex = {}) {
+  return extractVideoUrl(ex.videoUrl) ||
+    extractVideoUrl(ex.note) ||
+    defaultExerciseVideoUrl(ex.id) ||
+    ''
+}
+
+// What the field's text means, for the small hint under it. '' means "no video", null means the
+// text is not a usable video link (so the caller should not save it as one).
+export function describeVideoInput(text) {
+  const s = String(text || '').trim()
+  if (!s) return { ok: true, empty: true, startSec: null, label: t('No video') }
+  const url = extractVideoUrl(s)
+  if (!url) return { ok: false, empty: false, startSec: null, label: t('Not a video link') }
+  const startSec = parseVideoStartSec(url)
+  return {
+    ok: true,
+    empty: false,
+    url,
+    startSec,
+    label: startSec != null ? t('Starts at {0}', clockOf(startSec)) : (linkKind(url) === 'video' ? t('Video link') : t('Link')),
+  }
+}
+
+const clockOf = sec => {
+  const s = Math.max(0, Math.round(Number(sec) || 0))
+  const m = Math.floor(s / 60)
+  return m + ':' + String(s % 60).padStart(2, '0')
+}
+
+const exNameOf = id => (EXIDX[id] && EXIDX[id].n) || id
+
+// One text field that saves on blur. `onSave` receives the parsed video URL ('' clears it).
+// When empty and `fallback` names a video that will play anyway (a routine default or the
+// exercise's own tutorial), no "No video" hint is shown, since leaving it blank is fine.
+function VideoField({ initial, placeholder, fallback, onSave }) {
+  const [text, setText] = useState(initial || '')
+  const info = describeVideoInput(text)
+  const save = () => {
+    const videoUrl = info.ok && !info.empty ? info.url : ''
+    onSave(videoUrl)
+  }
+  const hint = info.empty ? (fallback ? '' : info.label) : info.label
+  return (
+    <div>
+      <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+        <TextField
+          type="url"
+          value={text}
+          onChange={e => setText(e.target.value)}
+          onBlur={save}
+          placeholder={placeholder}
+          autoCapitalize="none"
+          autoCorrect="off"
+          style={{ flex: 1, minWidth: 0, boxSizing: 'border-box' }}
+        />
+      </div>
+      {hint ? <div className="small muted" style={{ marginTop: 4, lineHeight: 1.4, wordBreak: 'break-all' }}>{hint}</div> : null}
+    </div>
+  )
+}
+
+// One routine: a default video for the whole plan, plus (on expand) a row per exercise so a plan
+// with several exercises can give each its own link. An exercise row is empty by default and
+// inherits the routine default when left blank. This sets the plan/exercise/video mapping BEFORE
+// a workout starts (handover item 3), for hand-made plans too.
+function RoutineVideos({ routine, setRoutineDefault, setExerciseVideo }) {
+  const [open, setOpen] = useState(false)
+  const ex = routine.ex || []
+  const count = ex.length
+  return (
+    <div style={{ padding: '12px 16px', borderTop: '1px solid var(--sep, #2c2c2e)' }}>
+      <div className="row between" style={{ marginBottom: 6 }}>
+        <span className="small" style={{ fontWeight: 600 }}>{routine.name || t('Routine')}</span>
+        <span className="small muted">{t('{0} exercises', count)}</span>
+      </div>
+      <VideoField
+        key={routine.id + ':' + (routine.ex?.[0]?.videoUrl || '')}
+        initial={routine.ex?.[0]?.videoUrl || ''}
+        placeholder={t('Default video for this plan (optional)')}
+        onSave={url => setRoutineDefault(routine.id, url)}
+      />
+      {count > 0 && (
+        <button
+          className="small muted"
+          onClick={() => setOpen(o => !o)}
+          style={{ marginTop: 8, background: 'none', border: 0, padding: 0, cursor: 'pointer', textDecoration: 'underline' }}
+        >
+          {open ? t('Hide each exercise') : t('Set a video for each exercise')}
+        </button>
+      )}
+      {open && ex.map((e, i) => {
+        const fallback = exerciseVideoLink(e)
+        return (
+          <div key={routine.id + ':' + i + ':' + e.id} style={{ marginTop: 10, paddingLeft: 10, borderLeft: '2px solid var(--sep, #2c2c2e)' }}>
+            <div className="small" style={{ marginBottom: 4 }}>{exNameOf(e.id)}</div>
+            <VideoField
+              initial={e.videoUrl || ''}
+              placeholder={fallback || t('Video for this exercise (optional)')}
+              fallback={fallback}
+              onSave={url => setExerciseVideo(routine.id, i, url)}
+            />
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function PreWorkoutVideos() {
+  const routines = useStore(s => s.routines) || []
+  const update = useStore(s => s.update)
+  // Routine default: fills every exercise that has no link of its own yet. Clearing it removes
+  // the routine-wide link (an exercise that set its own keeps it).
+  const setRoutineDefault = (routineId, videoUrl) => {
+    update(S => {
+      const r = (S.routines || []).find(x => x.id === routineId)
+      if (!r) return
+      for (const ex of r.ex || []) {
+        if (videoUrl) ex.videoUrl = videoUrl
+        else delete ex.videoUrl
+      }
+    })
+  }
+  // One exercise's own link overrides the routine default for that exercise.
+  const setExerciseVideo = (routineId, index, videoUrl) => {
+    update(S => {
+      const r = (S.routines || []).find(x => x.id === routineId)
+      const ex = r?.ex?.[index]
+      if (!ex) return
+      if (videoUrl) ex.videoUrl = videoUrl
+      else delete ex.videoUrl
+    })
+  }
+  if (!routines.length) return null
+  return (
+    <Section
+      title={t('Videos for your plans')}
+      footer={t('Set the video each plan plays before you train. Give a whole plan one video, or open it and give each exercise its own. If an exercise has none, the workout falls back to the exercise\'s own link, a link in its note, or a default tutorial.')}
+    >
+      {routines.map(r => (
+        <RoutineVideos
+          key={r.id}
+          routine={r}
+          setRoutineDefault={setRoutineDefault}
+          setExerciseVideo={setExerciseVideo}
+        />
+      ))}
+    </Section>
+  )
+}
+
 
 async function discoverRelayOnce(timeout = DISCOVERY_TIMEOUT_MS) {
   if (!MOBILE) return { found: false, reason: 'unsupported' }
@@ -313,10 +477,11 @@ export default function VideoSyncSettingsPage() {
               placeholder="4-CHARACTER CODE"
               autoCapitalize="characters"
               autoComplete="one-time-code"
-              style={{ flex: 1, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600, boxSizing: 'border-box' }}
+              style={{ flex: 1, minWidth: 0, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600, boxSizing: 'border-box', background: 'var(--surface-2, #1c1c1e)' }}
             />
             <Button
               variant="primary"
+              style={{ width: 'auto', flexShrink: 0, minHeight: 44, padding: '0 20px', whiteSpace: 'nowrap' }}
               onClick={handlePairCode}
               disabled={pairingBusy || pairCode.trim().length !== 4}
             >
@@ -376,6 +541,8 @@ export default function VideoSyncSettingsPage() {
           </div>
         </Section>
       ) : null}
+
+      <PreWorkoutVideos />
     </>
   )
 }

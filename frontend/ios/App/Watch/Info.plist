@@ -27,6 +27,7 @@
 	<key>WKBackgroundModes</key>
 	<array>
 		<string>workout-processing</string>
+		<string>self-care</string>
 	</array>
 	<key>CFBundleURLTypes</key>
 	<array>

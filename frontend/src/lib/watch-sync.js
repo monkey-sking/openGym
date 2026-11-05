@@ -36,6 +36,10 @@ const APPLIED_MAX = 300
 const SEND_DEBOUNCE_MS = 400
 const SNAPSHOT_RETRY_MS = 700
 const MAX_SNAPSHOT_RETRIES = 3
+// A live workout is re-sent on this cadence even when nothing changed on the phone. State changes
+// still go at once (SEND_DEBOUNCE_MS); this only guarantees the watch re-converges after a dropped
+// update, a reconnect, or waking mid-phase that fired no state change and no watchAppDidBecomeActive.
+const HEARTBEAT_MS = 5000
 export const OPEN_RETRY_MS = 1000
 const CONFLICT_KEY = 'gym_watch_conflict'
 const ABANDONED_KEY = 'gym_watch_abandoned'
@@ -593,7 +597,7 @@ export function watchExtras (S) {
   }
 }
 
-export async function startWatchSync ({ useStore, useUI, onWatchError = null, signal = null }) {
+export async function startWatchSync ({ useStore, useUI, onWatchError = null, signal = null, heartbeat = false }) {
   getStateRef = () => useStore.getState()
   // WCSession activation can take long enough for a workout to start. Watch the store from here,
   // before any wait, so that start is not lost; it is queued once the link is ready.
@@ -649,6 +653,9 @@ export async function startWatchSync ({ useStore, useUI, onWatchError = null, si
   let lastSent = null, lastClips = null, tm = null
   let sendChain = Promise.resolve({ ok: true, sent: false, alreadySent: false })
   let forcedResend = null
+  // The active-workout heartbeat: armed while a live workout runs, so the watch re-converges with
+  // the phone even across a dropped snapshot or a wake that fired no state change (see HEARTBEAT_MS).
+  let heartbeatTimer = null
   // The ready sessions only change with the plan, the log or the day: built again only then.
   let readyKey = null, ready = null
   const readyFor = S => {
@@ -685,6 +692,7 @@ export async function startWatchSync ({ useStore, useUI, onWatchError = null, si
       // A watch that is new here (the app just installed on it, or reinstalled): it has nothing yet,
       // so the snapshot goes again even when it is the same as the last one sent.
       if (!stopped && linked && !was) lastSent = null
+      if (!stopped) syncHeartbeat()
     }
   }
   await checkLink()
@@ -850,6 +858,29 @@ export async function startWatchSync ({ useStore, useUI, onWatchError = null, si
     return forcedResend
   }
   const schedule = () => { if (stopped || !linked) return; clearTimeout(tm); tm = setTimeout(() => { enqueueSend() }, SEND_DEBOUNCE_MS) }
+  // The heartbeat re-sends the current snapshot on a fixed cadence while a live workout runs, even
+  // when its bytes equal lastSent: a dropped update, a reconnect or a mid-phase wake that fired no
+  // state change would otherwise leave the watch stale until the next mutation. It skips the
+  // `json !== lastSent` guard by clearing lastSent, so the very same snapshot goes out again.
+  // Function declarations (not const) so checkLink, which runs above them at start, can call them.
+  function disarmHeartbeat () { if (heartbeatTimer != null) { clearInterval(heartbeatTimer); heartbeatTimer = null } }
+  function heartbeatSend () {
+    if (stopped || !linked) return
+    const S = useStore.getState().S
+    if (!S?.active) { disarmHeartbeat(); return }
+    lastSent = null
+    enqueueSend()
+  }
+  function armHeartbeat () {
+    if (stopped || !heartbeat || heartbeatTimer != null) return
+    heartbeatTimer = setInterval(heartbeatSend, HEARTBEAT_MS)
+  }
+  // Armed the moment a workout is live and the link is up; disarmed when it ends or the link goes.
+  function syncHeartbeat () {
+    const live = !!useStore.getState().S?.active
+    if (live && linked && !stopped) armHeartbeat()
+    else disarmHeartbeat()
+  }
 
   // One pending open per workout. Only a native { ok: true } marks its id done; a transient
   // start_failed is retried on its own, and any failure stays pending for the next
@@ -1015,6 +1046,7 @@ export async function startWatchSync ({ useStore, useUI, onWatchError = null, si
     if (hydrated) { schedule(); return }
     if (pendingOpen && s.S?.active?.id !== pendingOpen.id) clearPending(pendingOpen.id)
     schedule()
+    syncHeartbeat()
     // A workout started on the phone: queue the watch launch even while WCSession is still starting;
     // the pending open is retried when the link is ready or the app returns to the foreground.
     if (shouldOpenOnWatch(prev.S?.active, s.S?.active)) queueOpen(s.S.active)
@@ -1068,11 +1100,12 @@ export async function startWatchSync ({ useStore, useUI, onWatchError = null, si
   earlyOpen = null
   if (pendingAtStart && useStore.getState().S?.active?.id === pendingAtStart) queueOpen({ id: pendingAtStart })
   schedule()
+  syncHeartbeat()
   drainWatchEvents()
   stopSync = () => {
     stopped = true
     onStoreChange = null
-    clearTimeout(tm); clearSnapshotRetry(); clearOpenRetry(); openAgain = false; pendingOpen = null
+    clearTimeout(tm); clearSnapshotRetry(); clearOpenRetry(); disarmHeartbeat(); openAgain = false; pendingOpen = null
     stopResources()
   }
   // A forced resend is needed when the watch reports a conflicting start: its local snapshot has
@@ -1094,7 +1127,7 @@ export function startWatchLink ({ useStore, useUI, actions = {}, onWatchError = 
   // in bindWatchAppActions below can apply what the watch sent meanwhile.
   const lifecycle = new AbortController()
   let stop = null, stopped = false
-  const starting = startWatchSync({ useStore, useUI, onWatchError, signal: lifecycle.signal })
+  const starting = startWatchSync({ useStore, useUI, onWatchError, signal: lifecycle.signal, heartbeat: true })
   const unbind = bindWatchAppActions({
     ...actions,
     // Filled in when the link is up: a conflict found before that stays queued for the next wake.

@@ -6,7 +6,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 
 vi.mock('./api.js', () => ({ api: vi.fn(() => Promise.resolve({ ok: true })) }))
 
-import { startVideoSync, videoSyncSessionId, videoSyncUrl, videoSyncPos, discoverVideoSyncRelay, _resetVideoSyncDiscoveryForTests } from './video-sync.js'
+import { startVideoSync, videoSyncSessionId, videoSyncUrl, videoSyncPos, extractVideoUrl, parseVideoStartSec, discoverVideoSyncRelay, verifyPairingCode, _resetVideoSyncDiscoveryForTests } from './video-sync.js'
 import { registerCustom } from './exercises.js'
 import { isPaused, pauseActive, resumeActive } from './workout-pause.js'
 import { videoPlanBundle } from './video-plan.js'
@@ -109,6 +109,7 @@ const mobileMocks = vi.hoisted(() => ({
   MOBILE: true,
   platform: 'ios',
   discover: vi.fn(),
+  registerPairCode: vi.fn(),
   registered: 0
 }))
 
@@ -122,7 +123,8 @@ vi.mock('@capacitor/core', () => ({
     mobileMocks.registered++
     if (name === 'VideoSyncDiscovery') {
       return {
-        discover: (...args) => mobileMocks.discover(...args)
+        discover: (...args) => mobileMocks.discover(...args),
+        registerPairCode: (...args) => mobileMocks.registerPairCode(...args)
       }
     }
     return {}
@@ -317,6 +319,27 @@ describe('what counts as a session and a video', () => {
     expect(videoSyncUrl(session({ entries: [{ id: 'v1', videoUrl: 'javascript:alert(1)' }] }))).toBe(BV)
   })
 
+  it('reads a video link written in the exercise note, and a catalogue default as a last resort', () => {
+    // A bare link is picked up as-is; free text is scanned for the first video link.
+    expect(videoSyncUrl(session({ entries: [{ id: 'v3', note: 'watch the setup: ' + BV }] }))).toBe(BV)
+    expect(videoSyncUrl(session({ entries: [{ id: 'v3', target: { note: 'see ' + BV2 + ' first' } }] }))).toBe(BV2)
+    // A catalogue exercise now carries its default tutorial video, so a plain bench-press chapter
+    // still names a video for the extension (handover item 2/4).
+    expect(videoSyncUrl(session({ entries: [{ id: '0025' }] }))).toMatch(/^https:\/\//)
+    // A non-video link in a note is not a video, and falls through to nothing here (no catalogue id).
+    expect(videoSyncUrl(session({ entries: [{ id: 'v3', note: 'see https://example.com/notes' }] }))).toBe(null)
+  })
+
+  it('never lets a javascript: or data: link pose as a video', () => {
+    expect(extractVideoUrl('javascript:alert(1)')).toBe(null)
+    expect(extractVideoUrl('data:text/html,<video>')).toBe(null)
+    expect(videoSyncUrl(session({ entries: [{ id: 'v1', videoUrl: 'javascript:alert(1)' }] }))).toBe(BV)
+  })
+
+  it('keeps the block’s own source video over the note link', () => {
+    expect(videoSyncUrl(session({ entries: [{ id: 'v1', videoUrl: BV2, note: 'also ' + BV }] }))).toBe(BV2)
+  })
+
   it('keeps a catalogue-mapped chapter on its source video through import, export and start', () => {
     const URL1 = 'https://www.bilibili.com/video/BV1followal0ng/'
     const video = {
@@ -351,6 +374,68 @@ describe('what counts as a session and a video', () => {
     const shared = buildPlanBundle(state, 'Shared').routines[0].ex
     expect(shared.map(e => e.videoUrl)).toEqual([URL1, URL1])
     expect(shared.map(e => e.vstart)).toEqual([0, 60])
+  })
+})
+
+describe('extractVideoUrl', () => {
+  it('returns a direct video URL and scans free text for the first video link', () => {
+    expect(extractVideoUrl(BV)).toBe(BV)
+    expect(extractVideoUrl('  ' + BV2 + '  ')).toBe(BV2)
+    expect(extractVideoUrl('warm up here https://example.com/x then ' + BV)).toBe(BV)
+    expect(extractVideoUrl('nothing to see')).toBe(null)
+    expect(extractVideoUrl('')).toBe(null)
+    expect(extractVideoUrl(null)).toBe(null)
+    expect(extractVideoUrl(42)).toBe(null)
+  })
+
+  it('refuses a non-video link and a scheme that is not http(s)', () => {
+    expect(extractVideoUrl('https://example.com/notes')).toBe(null)
+    expect(extractVideoUrl('javascript:alert(1)')).toBe(null)
+    expect(extractVideoUrl('ftp://example.com/a.mp4')).toBe(null)
+  })
+})
+
+describe('parseVideoStartSec', () => {
+  it('reads plain seconds from ?t=, &t=, ?start=, &start= and #t=', () => {
+    expect(parseVideoStartSec('https://www.bilibili.com/video/BV1xx?t=85')).toBe(85)
+    expect(parseVideoStartSec('https://www.youtube.com/watch?v=abc&t=85s')).toBe(85)
+    expect(parseVideoStartSec('https://x.test/v?start=42')).toBe(42)
+    expect(parseVideoStartSec('https://x.test/v&start=42.5')).toBe(43)
+    expect(parseVideoStartSec('https://x.test/v#t=30')).toBe(30)
+    expect(parseVideoStartSec('https://x.test/v#t=1:25')).toBe(85)
+  })
+
+  it('reads h/m/s and clock forms, and returns null when no start is named', () => {
+    expect(parseVideoStartSec('https://y.test/w?t=1m25s')).toBe(85)
+    expect(parseVideoStartSec('https://y.test/w?t=1h2m3s')).toBe(3723)
+    expect(parseVideoStartSec('https://y.test/w?t=45s')).toBe(45)
+    expect(parseVideoStartSec('https://y.test/w?t=01:25')).toBe(85)
+    expect(parseVideoStartSec('https://y.test/w')).toBe(null)
+    expect(parseVideoStartSec('https://y.test/w?p=2')).toBe(null)
+    expect(parseVideoStartSec('')).toBe(null)
+    expect(parseVideoStartSec(null)).toBe(null)
+  })
+})
+
+describe('videoSyncPos uses a start second written into the video link', () => {
+  it('starts at the link’s ?t= when there is no vstart or note clock', () => {
+    const active = {
+      id: 's-urlstart',
+      start: 1_800_000_000_000,
+      cur: 0,
+      entries: [{ id: 'v1', note: 'watch ' + BV + '?t=85' }]
+    }
+    expect(videoSyncPos(active, null)).toBe(85)
+  })
+
+  it('lets an explicit vstart win over the link’s ?t=', () => {
+    const active = {
+      id: 's-urlstart2',
+      start: 1_800_000_000_000,
+      cur: 0,
+      entries: [{ id: 'v1', vstart: 10, note: BV + '?t=85' }]
+    }
+    expect(videoSyncPos(active, null)).toBe(10)
   })
 })
 
@@ -457,5 +542,20 @@ describe('discoverVideoSyncRelay over Wi-Fi', () => {
   it('returns null on native exception without throwing', async () => {
     mobileMocks.discover.mockRejectedValueOnce(new Error('native failure'))
     expect(await discoverVideoSyncRelay()).toBeNull()
+  })
+
+  it('registers the pairing code on the phone-hosted LAN server via VideoSyncDiscovery.registerPairCode', async () => {
+    mobileMocks.registerPairCode.mockReset()
+    mobileMocks.registerPairCode.mockResolvedValueOnce({
+      ok: true,
+      code: '7FEK',
+      host: '192.168.31.88',
+      port: 8787,
+      url: 'http://192.168.31.88:8787',
+      localUrl: 'http://127.0.0.1:8787'
+    })
+    const url = await verifyPairingCode('7fek')
+    expect(url).toBe('http://192.168.31.88:8787')
+    expect(mobileMocks.registerPairCode).toHaveBeenCalledWith({ code: '7FEK' })
   })
 })

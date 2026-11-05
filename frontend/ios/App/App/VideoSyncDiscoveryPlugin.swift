@@ -1,20 +1,30 @@
 import Foundation
 import Capacitor
+import Network
+import Darwin
 
 /**
- * Discovers the openGym video sync local relay server on the same Wi-Fi LAN
- * via Bonjour (mDNS: `_opengym._tcp.`).
+ * Video Sync on iPhone, two roles in one plugin:
  *
- * When the athlete opens the Video Sync sheet on iPhone, this searches the local
- * network so they don't have to look up and type their computer's IP address.
+ * 1. Discovery (original): browses the Wi-Fi LAN for an openGym video-sync relay via Bonjour
+ *    (`_opengym._tcp.`), so the athlete does not have to type the computer's IP.
+ *
+ * 2. Phone as the relay (new): the phone runs its own tiny HTTP+SSE server on port 8787 and
+ *    advertises the same Bonjour service. The Chrome extension finds it by the 4-character
+ *    pairing code instead of the computer running a menu-bar relay. This makes "video on the
+ *    computer, workout on the phone" work with no desktop software at all.
+ *
+ * The HTTP/SSE shapes are ported from tools/video-sync-extension/macos/main.swift (the reference
+ * relay) and tools/video-sync-extension/local-server.mjs (the pairing contract), so the extension,
+ * the settings screen (frontend/src/lib/video-sync.js) and this phone server all agree.
  *
  * Usage from JS:
- *   const { VideoSyncDiscovery } = await import('@capacitor/core').then(c => ({
- *     VideoSyncDiscovery: c.registerPlugin('VideoSyncDiscovery')
- *   }))
  *   const res = await VideoSyncDiscovery.discover({ timeout: 5000 })
- *   // res -> { found: true, name: "...", host: "192.168.1.5", port: 8787 }
- *   //    or  { found: false, reason: "permission-denied", message: "..." }
+ *   // { found: true, name, host, port }  — the phone's own server is a fallback
+ *   const srv = await VideoSyncDiscovery.startServer({ code: 'AB2C' })
+ *   // { ok: true, found: true, host, port, ips, url, localUrl, code }
+ *   const reg = await VideoSyncDiscovery.registerPairCode({ code: 'AB2C' })
+ *   // { ok: true, code, host, port, url, localUrl }
  */
 @objc(VideoSyncDiscoveryPlugin)
 public class VideoSyncDiscoveryPlugin: CAPPlugin, CAPBridgedPlugin, NetServiceBrowserDelegate, NetServiceDelegate {
@@ -22,7 +32,11 @@ public class VideoSyncDiscoveryPlugin: CAPPlugin, CAPBridgedPlugin, NetServiceBr
     public let jsName = "VideoSyncDiscovery"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "discover", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startServer", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "registerPairCode", returnType: CAPPluginReturnPromise),
     ]
+
+    // MARK: - Discovery (browse for a relay on the LAN)
 
     private var browser: NetServiceBrowser?
     private var resolvingService: NetService?
@@ -32,11 +46,58 @@ public class VideoSyncDiscoveryPlugin: CAPPlugin, CAPBridgedPlugin, NetServiceBr
     private var sawService = false
     private var lastResolveErrorCode: Int?
 
+    // MARK: - Embedded relay (the phone as the LAN server)
+
+    private let relay = PhoneRelayServer()
+
+    public override func load() {
+        // Start hosting once the bridge is up. Failures are silent: discovery still works against
+        // a computer relay, and startServer() reports anything the user must act on.
+        relay.start(preferredPort: 8787) { _ in }
+    }
+
+    // MARK: - Plugin methods
+
+    @objc func startServer(_ call: CAPPluginCall) {
+        let code = call.getString("code")
+        relay.start(preferredPort: 8787) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let info):
+                if let code = code { _ = self.relay.registerPairCode(code) }
+                call.resolve(self.serverPayload(info: info, code: self.relay.pairCode))
+            case .failure(let message):
+                call.resolve([
+                    "ok": false,
+                    "found": false,
+                    "reason": "server-failed",
+                    "message": message
+                ])
+            }
+        }
+    }
+
+    @objc func registerPairCode(_ call: CAPPluginCall) {
+        guard let raw = call.getString("code"), let code = self.relay.registerPairCode(raw) else {
+            call.resolve(["ok": false, "reason": "bad-code", "message": "A 4 character pairing code is required."])
+            return
+        }
+        relay.start(preferredPort: 8787) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let info):
+                var payload = self.serverPayload(info: info, code: code)
+                payload["ok"] = true
+                call.resolve(payload)
+            case .failure(let message):
+                call.resolve(["ok": false, "reason": "server-failed", "message": message])
+            }
+        }
+    }
+
     @objc func discover(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            // A new request supersedes the old one. Resolve the old promise instead of leaving
-            // a JavaScript caller waiting forever.
             if let previous = self.activeCall {
                 self.activeCall = nil
                 self.cleanup()
@@ -60,6 +121,14 @@ public class VideoSyncDiscoveryPlugin: CAPPlugin, CAPBridgedPlugin, NetServiceBr
 
             let item = DispatchWorkItem { [weak self] in
                 guard let self = self, self.activeCall != nil else { return }
+                // No computer relay answered in time. If this phone is hosting, that IS the relay:
+                // return its own address so discovery never dead-ends on the device that serves it.
+                if self.resolvingService == nil && !self.sawService {
+                    if let info = self.relay.readyInfo() {
+                        self.finishFoundOwnServer(info: info)
+                        return
+                    }
+                }
                 if self.resolvingService != nil || self.sawService {
                     self.finishFailure(
                         reason: "resolution-failed",
@@ -82,6 +151,38 @@ public class VideoSyncDiscoveryPlugin: CAPPlugin, CAPBridgedPlugin, NetServiceBr
         }
     }
 
+    private func finishFoundOwnServer(info: ServerInfo) {
+        guard let call = activeCall else {
+            cleanup()
+            return
+        }
+        activeCall = nil
+        cleanup()
+        let host = info.primaryIP ?? "127.0.0.1"
+        call.resolve([
+            "found": true,
+            "name": "openGym (this iPhone)",
+            "host": host,
+            "port": Int(info.port),
+            "url": "http://\(host):\(info.port)",
+            "localUrl": "http://127.0.0.1:\(info.port)"
+        ])
+    }
+
+    private func serverPayload(info: ServerInfo, code: String?) -> [String: Any] {
+        let host = info.primaryIP ?? "127.0.0.1"
+        return [
+            "ok": true,
+            "found": true,
+            "host": host,
+            "port": Int(info.port),
+            "ips": info.ips,
+            "url": "http://\(host):\(info.port)",
+            "localUrl": "http://127.0.0.1:\(info.port)",
+            "code": code ?? NSNull()
+        ]
+    }
+
     // MARK: - NetServiceBrowserDelegate
 
     public func netServiceBrowser(_ browser: NetServiceBrowser, didFind service: NetService, moreComing: Bool) {
@@ -99,6 +200,11 @@ public class VideoSyncDiscoveryPlugin: CAPPlugin, CAPBridgedPlugin, NetServiceBr
     public func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String : NSNumber]) {
         let code = (errorDict["NSNetServicesErrorCode"] as? NSNumber)?.intValue
         if isPermissionError(code) {
+            // Permission is blocked, but this phone can still be its own relay; fall back to it.
+            if let info = relay.readyInfo() {
+                finishFoundOwnServer(info: info)
+                return
+            }
             finishPermissionDenied(code: code)
         } else {
             finishFailure(
@@ -153,8 +259,6 @@ public class VideoSyncDiscoveryPlugin: CAPPlugin, CAPBridgedPlugin, NetServiceBr
         if isPermissionError(code) {
             finishPermissionDenied(code: code)
         } else {
-            // One candidate can fail while a later Bonjour result is still usable. Try the next
-            // service instead of turning the whole discovery into a red error.
             resolveNext()
         }
     }
@@ -213,7 +317,6 @@ public class VideoSyncDiscoveryPlugin: CAPPlugin, CAPBridgedPlugin, NetServiceBr
     }
 
     private func isPermissionError(_ code: Int?) -> Bool {
-        // DNS-SD PolicyDenied and NoAuth are the two codes iOS returns before Bonjour can run.
         code == -65570 || code == -65555
     }
 

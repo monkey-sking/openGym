@@ -527,7 +527,7 @@ enum SessionCore {
 
     /// The training time frozen when the workout paused, for the paused screen.
     static func pausedElapsed(_ w: ActiveWorkout?) -> Double? {
-        guard let w, let start = w.start, let pausedAt = w.pausedAt, pausedAt > 0 else { return nil }
+        guard let w, let start = w.start, start > 0, let pausedAt = w.pausedAt, pausedAt > 0 else { return nil }
         return max(0, (pausedAt - start - (w.pausedMs ?? 0)) / 1000)
     }
 

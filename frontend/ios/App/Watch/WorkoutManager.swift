@@ -1,5 +1,40 @@
 import Foundation
 import HealthKit
+#if canImport(WatchKit)
+import WatchKit
+#endif
+
+#if canImport(WatchKit)
+/// A `WKExtendedRuntimeSession` that keeps the watch app frontmost for the whole workout, even when
+/// Apple Health write is off or was denied (in which case no HKWorkoutSession exists to pin it).
+/// `self-care` is the session category that best matches a self-directed workout and, unlike
+/// `.physical-therapy`, requires no extra justification. It is started when a workout goes live and
+/// invalidated only when the workout ends or is discarded; phase changes leave it running.
+final class ForegroundKeeper: NSObject, WKExtendedRuntimeSessionDelegate {
+    private var session: WKExtendedRuntimeSession?
+    func start() {
+        guard session == nil else { return }
+        let s = WKExtendedRuntimeSession()
+        s.delegate = self
+        session = s
+        s.start()
+    }
+    func stop() {
+        session?.invalidate()
+        session = nil
+    }
+    func extendedRuntimeSessionDidStart(_ extendedRuntimeSession: WKExtendedRuntimeSession) {}
+    func extendedRuntimeSessionWillExpire(_ extendedRuntimeSession: WKExtendedRuntimeSession) {
+        // About to time out: ask for one more, so a long workout stays pinned.
+        if session != nil { extendedRuntimeSession.start() }
+    }
+    func extendedRuntimeSession(_ extendedRuntimeSession: WKExtendedRuntimeSession,
+                               didInvalidateWith reason: WKExtendedRuntimeSessionInvalidationReason,
+                               error: Error?) {
+        if session === extendedRuntimeSession { session = nil }
+    }
+}
+#endif
 
 /*
  * Apple Health on the watch, behind the phone's Apple Health switch (Settings → Data on the iPhone,
@@ -38,6 +73,22 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
     private let bpm = HKUnit.count().unitDivided(by: .minute())
     /// A workout to measure (started here or picked up), even before the permission answer.
     private var wanted = false
+    #if canImport(WatchKit)
+    /// The safety net when no HKWorkoutSession can run (HealthKit unavailable, or the session was
+    /// refused): a frontmost extended runtime session, so the app still does not fall back to the
+    /// watch face mid-workout. The HKWorkoutSession (workout-processing) is the real pin and has no
+    /// time limit; the extended session is capped (self-care 10 min), so it runs only when needed.
+    private let foreground = ForegroundKeeper()
+    #endif
+
+    /// Keep the app frontmost for as long as a workout is wanted: an HKWorkoutSession when one is
+    /// running, else the extended runtime session. A phase change never calls this with `wanted`
+    /// false, so the workout stays pinned from its first second to its end or discard.
+    private func syncForeground() {
+        #if canImport(WatchKit)
+        if wanted && session == nil { foreground.start() } else { foreground.stop() }
+        #endif
+    }
 
     /// { avg, max } over a stretch of the session, or nil without readings in it.
     func stats(from start: Date, to end: Date) -> [String: Double]? {
@@ -77,8 +128,9 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
                 self.onStatus?()
             }
         } else {
+            // Only stop saving to Apple Health; a workout that is running keeps running (measured for
+            // the wrist, still pinned frontmost) and is discarded rather than saved at its end.
             enabled = false
-            end(save: true)
             onStatus?()
         }
     }
@@ -126,8 +178,14 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
         lastError = nil
         if let wid = wid { workoutId = wid }
         // Already running (opened by the phone before its workout arrived): only the id to add.
-        if session != nil && !prepared { tag(); return }
-        guard session != nil || make(type: type, opened: opened), let s = session, let b = builder else { return }
+        if session != nil && !prepared { tag(); syncForeground(); return }
+        guard session != nil || make(type: type, opened: opened), let s = session, let b = builder else {
+            // No HKWorkoutSession (HealthKit unavailable or refused): the extended runtime session is
+            // the only thing that can still keep the app frontmost.
+            syncForeground()
+            return
+        }
+        syncForeground()
         prepared = false
         let now = Date()
         s.startActivity(with: now)
@@ -143,6 +201,12 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
                     self.heartRate = nil
                     self.paused = false
                     s.end()
+                    if s === self.session {
+                        self.session = nil
+                        self.builder = nil
+                        // No usable session after all: fall back to keeping the app frontmost.
+                        self.syncForeground()
+                    }
                     return
                 }
                 self.lastError = nil
@@ -152,9 +216,12 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
         }
     }
 
-    /// A new session of the planned type and its builder, when Apple Health is on.
+    /// A new session of the planned type and its builder. The session runs even when Apple Health
+    /// write is off (it also pins the app frontmost and shows the live heart rate at the wrist); only
+    /// saving the workout to Health is gated on `enabled` (see `end`). When HealthKit is unavailable
+    /// this returns false and the `ForegroundKeeper` alone keeps the app frontmost.
     private func make(type: String?, opened: HKWorkoutActivityType?) -> Bool {
-        guard enabled, HKHealthStore.isHealthDataAvailable() else { return false }
+        guard HKHealthStore.isHealthDataAvailable() else { return false }
         let config = HKWorkoutConfiguration()
         config.activityType = type.flatMap { WorkoutManager.activityTypes[$0] } ?? opened ?? .traditionalStrengthTraining
         config.locationType = .indoor
@@ -185,6 +252,9 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
     private(set) var paused = false
 
     func pause() {
+        // A paused workout is still a workout: keep the app frontmost even if no HKWorkoutSession
+        // is running (a workout picked up from the phone while already paused, or Health off).
+        syncForeground()
         guard let s = session, !paused, s.state == .running else { return }
         paused = true
         s.pause()
@@ -222,6 +292,7 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
                 if let q = self.query { self.store.stop(q) }
                 self.startQuery(from: s.startDate ?? Date())
                 self.running = s.state == .running || s.state == .paused
+                self.syncForeground()
                 self.lastError = nil
             }
         }
@@ -316,6 +387,9 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
         workoutId = nil
         prepared = false
         lastError = nil
+        // The workout is over (finished or discarded): release the foreground pin. A phase change
+        // does not call this, so the app stays frontmost between sets, rests and holds.
+        syncForeground()
         if let q = query { store.stop(q); query = nil }
         let endAt = at ?? Date()
         let all = samples.filter { $0.0 <= endAt }.map { $0.1 }
@@ -326,6 +400,9 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
         }
         s.end()
         // Never before the session's own start (a workout picked up from the phone after its last set).
+        // Saved to Apple Health only when the phone's switch is on and the caller asked to save; a
+        // workout recorded with the switch off is measured for the wrist but never written to Health.
+        let persist = save && enabled
         b.endCollection(withEnd: max(endAt, b.startDate ?? endAt)) { _, _ in
             var out = hr
             if let kcalType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned),
@@ -333,7 +410,7 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
                 out.calories = kcal.rounded()
             }
             if let totals = totals { DispatchQueue.main.async { totals(out) } }
-            if save {
+            if persist {
                 b.finishWorkout { _, _ in }
             } else {
                 b.discardWorkout()

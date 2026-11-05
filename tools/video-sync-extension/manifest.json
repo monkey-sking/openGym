@@ -8,7 +8,9 @@
   "host_permissions": [
     "*://*.bilibili.com/*",
     "*://*.youtube.com/*",
-    "*://*.vimeo.com/*"
+    "*://*.vimeo.com/*",
+    "http://*:8787/*",
+    "https://*:8787/*"
   ],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {

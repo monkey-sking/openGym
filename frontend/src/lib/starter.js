@@ -6,7 +6,7 @@
 // schedule points at, so a weekday never depends on the position of a routine in the array.
 // Names stay canonical English — they become ordinary user routines, which are not translated.
 import { uid } from './format.js'
-import { EXIDX } from './exercises.js'
+import { EXIDX, defaultExerciseVideoUrl } from './exercises.js'
 import { eqAvailable, ALL_EQUIPMENT } from './equipment.js'
 
 const PPL = [
@@ -44,7 +44,7 @@ const PLANS = {
 }
 
 const build = routines =>
-  routines.map(([, name, emoji, list]) => ({ id: uid(), name, emoji, ex: list.map(([id, sets, reps]) => ({ id, sets, reps, weight: 0 })) }))
+  routines.map(([, name, emoji, list]) => ({ id: uid(), name, emoji, ex: list.map(([id, sets, reps]) => ({ id, sets, reps, weight: 0, ...(defaultExerciseVideoUrl(id) ? { videoUrl: defaultExerciseVideoUrl(id) } : {}) })) }))
 
 // Fresh routine objects (new ids) — [push, pull, legs]. The demo build seeds a history on
 // top of exactly these three, so this entry point keeps its shape.

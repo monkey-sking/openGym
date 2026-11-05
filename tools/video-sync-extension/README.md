@@ -4,25 +4,18 @@ Pauses the follow-along video on the computer when the workout pauses, and pause
 when the video does. The app's half is `frontend/src/lib/video-sync.js`; this folder is the half
 that talks to the `<video>` element.
 
-## Plan A setup: Chrome extension + 4-character pairing code
+## Direct phone-to-Chrome setup: Chrome extension + 4-character pairing code
 
-The ordinary-user path requires zero terminal commands, zero Node.js installations,
+The ordinary-user path requires zero terminal commands, zero computer helper servers,
 and zero manual IP addresses:
 
 1. **Install the extension**: install from Chrome Web Store (or load unpacked in developer mode).
 2. **Open the extension popup**: a prominent **4-character pairing code** is displayed
-   (e.g., `A3K9`, 10-minute validity, case-insensitive).
-3. **Pair in openGym**: open the app on phone → **Settings → Video sync → Quick pair with Chrome**.
-4. **Enter code and tap Pair**: phone automatically contacts candidate LAN addresses, verifies
-   the pairing code, and binds the relay connection.
+   (e.g., `A3K9`, generated and persisted locally in the extension).
+3. **Pair in openGym on iPhone**: open the app on your phone → **Settings → Video sync → Quick pair with Chrome**.
+4. **Enter code and tap Pair**: the iPhone hosts the LAN relay server directly (`_opengym._tcp.` on port `8787`) and registers the pairing code; the Chrome extension automatically discovers the phone on the same Wi-Fi and connects.
 
-Advanced users can click "Advanced / Manual IP" in the popup to customize the server address.
-
-## Mac helper (optional background service)
-
-For users who prefer a persistent system daemon running even when Chrome is closed,
-the native helper app at `~/Applications/openGym Video Sync.app` remains available as an
-optional background relay with its user LaunchAgent.
+Advanced users can click "Advanced / Manual IP" in the popup to enter the phone's LAN IP directly if corporate/guest Wi-Fi blocks local discovery.
 
 Chrome grants access to the server host on Save. The extension reads the `gymsid` /
 `__Host-gymsid` session cookie for that host and sends it as a bearer token, which is the same

@@ -13,7 +13,7 @@
 import { api } from './api.js'
 import { isPaused, elapsedMs } from './workout-pause.js'
 import { EXIDX } from './exercises.js'
-import { linkKind } from './media-refs.js'
+import { linkKind, cleanUrl } from './media-refs.js'
 import { nativeFetch } from './capacitor-fetch.js'
 import { MOBILE, nativePlatform } from './mobile.js'
 
@@ -34,11 +34,71 @@ export const videoSyncSessionId = A => (liveSession(A) ? A.id : null)
 // lib/video-plan.js puts the source link on every block, including a catalogue-mapped one; older
 // plans only have it on the custom exercise. The extension uses it to pick that tab instead of
 // whichever video happens to be active; without it, the tab being watched.
+
+// The first usable video URL in a string. A bare URL that is itself a video wins; otherwise free
+// text ("note", a "desc", a cue like "watch the setup video: <link>") is scanned for the first
+// http(s) link whose page is a video (lib/media-refs.js linkKind). cleanUrl refuses javascript:,
+// data: and the like, so a pasted link can never smuggle a scheme in. Returns a string or null.
+export function extractVideoUrl(raw) {
+  if (typeof raw !== 'string') return null
+  const s = raw.trim()
+  if (!s) return null
+  if (linkKind(s) === 'video') return cleanUrl(s)
+  const re = /https?:\/\/[^\s"'<>]+/gi
+  let m
+  while ((m = re.exec(s))) {
+    const u = cleanUrl(m[0])
+    if (u && linkKind(u) === 'video') return u
+  }
+  return null
+}
+
+// The start seconds a video link carries, or null when it names none. Reads `?t=`/`&t=`,
+// `?start=`/`&start=` and `#t=` from a URL or from the query part of free text, in the forms
+// people paste: plain seconds (?t=85, ?t=85s, ?t=85.5), a clock (01:25), and Bilibili/YouTube's
+// 1h2m3s / 1m25s / 45s. A non-negative whole number of seconds; null if none is present.
+export function parseVideoStartSec(url) {
+  if (typeof url !== 'string') return null
+  const s = url.trim()
+  if (!s) return null
+  const m = /[?&#](?:t|start)=([^&#\s]+)/i.exec(s)
+  if (!m) return null
+  let v = decodeURIComponent(m[1])
+  v = v.replace(/(\d)s\b/gi, '$1')           // 85s / 45s → the number (leave "1m25s" for the next step)
+  const clock = /^(\d+):(\d{1,2})(?::(\d{1,2}))?$/.exec(v)
+  if (clock) {
+    const h = clock[3] != null ? Number(clock[1]) : 0
+    const min = clock[3] != null ? Number(clock[2]) : Number(clock[1])
+    const sec = clock[3] != null ? Number(clock[3]) : Number(clock[2])
+    return Math.max(0, h * 3600 + min * 60 + sec)
+  }
+  const hms = /^(?:(\d+)h)?(?:(\d+)m)?(\d+(?:\.\d+)?)s?$/i.exec(v)
+  if (hms && (hms[1] || hms[2] || hms[3])) {
+    return Math.max(0, Math.round((Number(hms[1] || 0) * 3600) + (Number(hms[2] || 0) * 60) + Number(hms[3] || 0)))
+  }
+  if (/^\d+(?:\.\d+)?$/.test(v)) return Math.max(0, Math.round(Number(v)))
+  return null
+}
+
+// Every place the URL for an entry may come from, best first. A block's own source link
+// (videoUrl / target.videoUrl) is what a follow-along plan put there; then a link stored on the
+// entry or target; then one written in the note; then the catalogue/custom exercise's default.
+const entryVideoSources = entry => [
+  entry?.videoUrl, entry?.target?.videoUrl,
+  entry?.url, entry?.target?.url,
+  entry?.note, entry?.target?.note,
+  entry?.id != null ? EXIDX[entry.id]?.videoUrl : null,
+  entry?.id != null ? EXIDX[entry.id]?.url : null,
+  entry?.id != null ? EXIDX[entry.id]?.desc : null
+]
+
 export const videoSyncUrl = A => {
   const entry = A?.entries?.[A?.cur]
-  const url = [entry?.videoUrl, entry?.target?.videoUrl, entry?.id != null ? EXIDX[entry.id]?.url : null]
-    .find(u => u && linkKind(u) === 'video')
-  return url ? String(url).slice(0, 500) : null
+  for (const raw of entryVideoSources(entry)) {
+    const url = extractVideoUrl(raw)
+    if (url) return url.slice(0, 500)
+  }
+  return null
 }
 
 // The server URL configured for local direct relay, stored in localStorage on this phone.
@@ -94,6 +154,13 @@ export function videoSyncPos(A, currentWork = null) {
       intraSec = Math.max(0, doneSec)
     }
     return Math.max(0, Math.round(startSec + intraSec))
+  }
+  // No chapter vstart and no note clock: a start second written into the video link itself
+  // (?t=85, #t=1m25s) says where the chapter begins. Treat it like an explicit start, so the
+  // position is the link's start plus whatever has played within the chapter.
+  const urlStart = parseVideoStartSec(videoSyncUrl(A))
+  if (urlStart != null) {
+    return Math.max(0, Math.round(urlStart))
   }
   // Session elapsed seconds
   const elapsedSec = Math.max(0, Math.floor(elapsedMs(A) / 1000))
@@ -405,6 +472,25 @@ export async function discoverVideoSyncRelay({ timeout = 4000 } = {}) {
 export async function verifyPairingCode(code, { candidateUrl = null, timeout = 3000 } = {}) {
   const norm = String(code || "").trim().toUpperCase().replace(/[^2-9A-Z]/g, "")
   if (!norm || norm.length !== 4) return null
+
+  // 0. On iOS, if this phone is hosting the LAN video-sync server, register the Chrome extension's
+  // 4-character pairing code on the phone's own server so the extension's LAN discovery sweep
+  // (/pair/verify?code=XXXX&role=extension) locks onto this phone immediately.
+  if (MOBILE) {
+    try {
+      const platform = await nativePlatform().catch(() => null)
+      if (platform === 'ios') {
+        const loaded = await getVideoSyncDiscoveryPlugin()
+        const plugin = loaded?.VideoSyncDiscovery
+        if (plugin?.registerPairCode) {
+          const reg = await plugin.registerPairCode({ code: norm })
+          if (reg?.ok && (reg.url || reg.localUrl || (reg.host && reg.port))) {
+            return reg.url || reg.localUrl || ('http://' + reg.host + ':' + reg.port)
+          }
+        }
+      }
+    } catch {}
+  }
 
   // 1. If candidateUrl provided (e.g. localhost or previously known LAN IP)
   const candidates = candidateUrl ? [candidateUrl] : ["http://127.0.0.1:8787", "http://localhost:8787"]

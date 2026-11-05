@@ -29,8 +29,10 @@ openGym Video Sync connects your openGym iPhone app with your computer's Chrome 
 ---
 
 ## 隐私权与权限声明 (Privacy & Permissions Justification)
-- **storage**: Used to store user settings and pairing preferences locally.
-- **tabs & scripting**: Required to detect supported video players (Bilibili, YouTube, Vimeo) and synchronize play/pause states.
-- **alarms**: Used for periodic connection health checks and automatic reconnection.
-- **host_permissions (bilibili.com, youtube.com, vimeo.com)**: Strictly limited to controlling playback on supported workout video sites. No personal or browsing data is harvested.
-- **Single Purpose**: This extension exists solely to synchronize workout video playback between openGym mobile app and Chrome browser.
+- **storage**: Used to store the 4-character pairing code, paired phone LAN address, and sync preferences locally in Chrome.
+- **cookies**: Used only when connecting to an authenticated self-hosted openGym instance to forward the user's own session cookie (`gymsid` / `__Host-gymsid`).
+- **tabs & scripting**: Required to open or locate the matching workout video tab (Bilibili, YouTube, Vimeo), jump to the configured timestamp (`?t=`), and synchronize play/pause states.
+- **alarms**: Used for periodic connection health checks, automatic LAN phone discovery, and automatic reconnection after service worker suspension.
+- **host_permissions (`bilibili.com`, `youtube.com`, `vimeo.com`, `*:8787`)**: Strictly limited to controlling playback on supported workout video sites and communicating with the user's openGym iPhone LAN server on port `8787`. No personal or browsing data is harvested or sent to any third party.
+- **optional_host_permissions (`http://*/*`, `https://*/*`)**: Requested only when the user manually configures a custom port or self-hosted server URL in Advanced settings.
+- **Single Purpose**: This extension exists solely to synchronize follow-along workout video playback between the openGym mobile app and Chrome browser.

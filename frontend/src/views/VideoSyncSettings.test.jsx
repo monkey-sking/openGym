@@ -8,6 +8,8 @@ import VideoSyncSettingsPage, {
   discoveryUrl,
   relayPhase,
   relayPhaseLabel,
+  exerciseVideoLink,
+  describeVideoInput,
 } from './VideoSyncSettings.jsx'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -21,6 +23,8 @@ const mocks = vi.hoisted(() => ({
   verify: vi.fn(),
   plugin: null,
   registerPlugin: vi.fn(),
+  routines: [],
+  update: vi.fn(),
 }))
 
 vi.mock('../lib/i18n.js', () => ({ t: value => value }))
@@ -32,6 +36,17 @@ vi.mock('../lib/video-sync.js', () => ({
   },
   probeVideoSyncServer: (...args) => mocks.probe(...args),
   verifyPairingCode: (...args) => mocks.verify(...args),
+  extractVideoUrl: url => {
+    const s = String(url || '').trim()
+    if (!s) return null
+    const m = /https?:\/\/[^\s"'<>]+/.exec(s)
+    if (!m) return null
+    return /youtu\.be|youtube\.com|bilibili\.com|vimeo\.com|tiktok\.com|instagram\.com|b23\.tv/.test(m[0]) ? m[0] : null
+  },
+  parseVideoStartSec: url => {
+    const m = /[?&#](?:t|start)=(\d+)/.exec(String(url || ''))
+    return m ? Number(m[1]) : null
+  },
 }))
 vi.mock('../lib/mobile.js', () => ({
   get MOBILE () { return mocks.mobile },
@@ -45,6 +60,12 @@ vi.mock('../store/useUI.js', () => {
   const useUI = selector => selector ? selector(snapshot()) : snapshot()
   useUI.getState = snapshot
   return { useUI }
+})
+vi.mock('../store/useStore.js', () => {
+  const snapshot = () => ({ routines: mocks.routines, update: mocks.update })
+  const useStore = selector => selector ? selector(snapshot()) : snapshot()
+  useStore.getState = snapshot
+  return { useStore }
 })
 
 const flush = async (turns = 8) => {
@@ -63,6 +84,8 @@ beforeEach(() => {
   mocks.verify = vi.fn()
   mocks.plugin = null
   mocks.registerPlugin = vi.fn(() => mocks.plugin)
+  mocks.routines = []
+  mocks.update = vi.fn()
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -287,5 +310,90 @@ describe('automatic status recovery', () => {
     expect(host.textContent).toContain('Local Network permission required')
     expect(host.textContent).toContain('Local Network access is off')
     expect(host.textContent).not.toContain('Computer not reachable')
+  })
+})
+
+describe('pre-workout video configuration', () => {
+  it('resolves a routine exercise video from its link, its note, or the exercise default', () => {
+    expect(exerciseVideoLink({ id: 'v1', videoUrl: 'https://www.bilibili.com/video/BV1xx411c7mD/' }))
+      .toBe('https://www.bilibili.com/video/BV1xx411c7mD/')
+    expect(exerciseVideoLink({ id: 'v1', note: 'watch https://youtu.be/dQw4w9WgXcQ first' }))
+      .toBe('https://youtu.be/dQw4w9WgXcQ')
+    // A catalogue exercise with no link/note still gets its default tutorial.
+    expect(exerciseVideoLink({ id: '0025' })).toMatch(/^https:\/\//)
+  })
+
+  it('tells apart a video link, a start-second link, a plain link and junk', () => {
+    expect(describeVideoInput('').empty).toBe(true)
+    expect(describeVideoInput('https://www.youtube.com/watch?v=abc&t=85').startSec).toBe(85)
+    expect(describeVideoInput('https://www.youtube.com/watch?v=abc&t=85').ok).toBe(true)
+    expect(describeVideoInput('https://example.com/notes').ok).toBe(false)
+    expect(describeVideoInput('not a url').ok).toBe(false)
+  })
+
+  it('lists a play-video field per routine and saves its link onto the routine exercises', async () => {
+    mocks.routines = [{
+      id: 'r1', name: 'Push Day', ex: [{ id: '0025', sets: 4, reps: 8 }, { id: '0047', sets: 3, reps: 10 }]
+    }]
+    mocks.plugin = { discover: vi.fn().mockResolvedValue({ found: false, reason: 'timeout' }) }
+    mocks.probe.mockResolvedValue(null)
+    await mount()
+    expect(host.textContent).toContain('Videos for your plans')
+    expect(host.textContent).toContain('Push Day')
+
+    const input = host.querySelector('input[type="url"]')
+    expect(input).toBeTruthy()
+    expect(input.type).toBe('url')
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    await act(async () => {
+      setter.call(input, 'https://www.bilibili.com/video/BV1zz411c7mF/')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      await flush()
+    })
+    await act(async () => {
+      input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+      await flush()
+    })
+    expect(mocks.update).toHaveBeenCalled()
+    const mut = mocks.update.mock.calls[0][0]
+    const S = { routines: [{ id: 'r1', name: 'Push Day', ex: [{ id: '0025' }, { id: '0047' }] }] }
+    mut(S)
+    expect(S.routines[0].ex.every(e => e.videoUrl === 'https://www.bilibili.com/video/BV1zz411c7mF/')).toBe(true)
+  })
+
+  it('expands a plan to give one exercise its own video, leaving the others alone', async () => {
+    mocks.routines = [{
+      id: 'r1', name: 'Push Day', ex: [{ id: '0025', sets: 4, reps: 8 }, { id: '0047', sets: 3, reps: 10 }]
+    }]
+    mocks.plugin = { discover: vi.fn().mockResolvedValue({ found: false, reason: 'timeout' }) }
+    mocks.probe.mockResolvedValue(null)
+    await mount()
+
+    // Collapsed by default: only the routine-level field is shown.
+    expect(host.querySelectorAll('input[type="url"]').length).toBe(1)
+    const expand = [...host.querySelectorAll('button')].find(b => (b.textContent || '').trim() === 'Set a video for each exercise')
+    expect(expand).toBeTruthy()
+    await act(async () => { expand.dispatchEvent(new MouseEvent('click', { bubbles: true })); await flush() })
+
+    // Now the routine default plus one field per exercise.
+    const inputs = host.querySelectorAll('input[type="url"]')
+    expect(inputs.length).toBe(3)
+
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    const secondEx = inputs[2]
+    await act(async () => {
+      setter.call(secondEx, 'https://youtu.be/dQw4w9WgXcQ')
+      secondEx.dispatchEvent(new Event('input', { bubbles: true }))
+      await flush()
+    })
+    await act(async () => {
+      secondEx.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+      await flush()
+    })
+    const lastCall = mocks.update.mock.calls.at(-1)[0]
+    const S = { routines: [{ id: 'r1', name: 'Push Day', ex: [{ id: '0025' }, { id: '0047' }] }] }
+    lastCall(S)
+    expect(S.routines[0].ex[1].videoUrl).toBe('https://youtu.be/dQw4w9WgXcQ')
+    expect(S.routines[0].ex[0].videoUrl).toBeUndefined()
   })
 })

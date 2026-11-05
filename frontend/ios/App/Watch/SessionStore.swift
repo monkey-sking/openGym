@@ -188,7 +188,7 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         if !isDemo { center.requestAuthorization(options: [.alert, .sound]) { _, _ in } }
-        if WCSession.isSupported() {
+        if !isDemo && WCSession.isSupported() {
             WCSession.default.delegate = self
             WCSession.default.activate()
         }
@@ -445,9 +445,13 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
                 self.workoutSeenAt = Date()
                 self.picked = [:]
                 self.summary = nil
-                if !launchWaiting {
+                if !launchWaiting && !self.isDemo {
                     self.health.start(workoutId: next.workout?.id, type: next.workout?.healthType)
                 }
+            } else if next.workout != nil && !self.health.running && !launchWaiting && !self.isDemo {
+                // Ensure the session and foreground pin are active even if a previous start dropped
+                // or the app became active mid-workout without a workout-id change.
+                self.health.start(workoutId: next.workout?.id, type: next.workout?.healthType)
             }
             if next.workout != nil && next.workout != before.workout { self.noteActivity() }
             let wasPaused = before.workout?.isPaused == true
@@ -480,7 +484,9 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
                 self.phoneWorkLabel = work.label
             }
             if !nowPaused, next.workout?.id == snap.active?.id {
-                self.mirrorPhoneWork(snap.active?.work)
+                if !self.isDemo || snap.active?.work != nil {
+                    self.mirrorPhoneWork(snap.active?.work)
+                }
             }
             self.health.syncSetting(next.settings.health)
             self.removeDeletedFromHealth(snap.healthGone)
@@ -1210,6 +1216,10 @@ final class SessionStore: NSObject, ObservableObject, WCSessionDelegate, UNUserN
             case "side": self.state.entryIndex = 3
             case "superset": self.state.entryIndex = 4
             case "finish": self.state.entryIndex = self.workout?.entries.count ?? 0
+            case "paused":
+                self.picked[0] = 2
+                self.startRest(until: Date().addingTimeInterval(62), notify: false)
+                self.pause()
             case "weighin":
                 self.bodyWeight = 81.4
                 self.weighInFor = ReadySession(routineIds: ["r1"], name: "Push day", entries: [])

@@ -484,4 +484,16 @@ final class SessionCoreTests: XCTestCase {
         XCTAssertEqual(m.pending["0025#0#0#L"]?.at, 1000)
         XCTAssertEqual(m.pending["0025#0#0#R"]?.at, 2000)
     }
+
+    func testPausedElapsedRequiresPositiveStartTimestamp() {
+        var w = workout("p1", sets: [row(60, 8)])
+        w.start = 0
+        w.pausedAt = 1_700_000_000_000
+        XCTAssertNil(SessionCore.pausedElapsed(w))
+
+        w.start = 1_700_000_000_000
+        w.pausedAt = 1_700_000_065_000
+        w.pausedMs = 5_000
+        XCTAssertEqual(SessionCore.pausedElapsed(w), 60)
+    }
 }

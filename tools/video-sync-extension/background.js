@@ -10,6 +10,7 @@ const VIDEO_PATTERNS = [
 ]
 const STATUS_KEY = 'status'
 const SERVER_KEY = 'serverUrl'
+const PAIR_CODE_KEY = 'pairCode'
 const SESSION_KEY = 'session'
 const APPLIED_SEQ_KEY = 'appliedSeq'
 const APPLIED_EPOCH_KEY = 'appliedEpoch'
@@ -27,40 +28,70 @@ const RETRYABLE_STATES = new Set([
   'error'
 ])
 
+// ---- LAN discovery for the phone-hosted relay ------------------------------------------------
+// The phone now hosts the video-sync server on its own Wi-Fi address. The extension no longer
+// needs anything running on the computer: it holds a 4-character pairing code and finds the
+// phone by asking every candidate address whether it knows that code.
+// Charset matches tools/video-sync-extension/pairing.mjs (no 0/O/1/I/L, which look alike).
+const PAIRING_CHARS = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'
+const PHONE_RELAY_PORT = 8787
+const DISCOVER_INTERVAL_MS = 4000
+const DISCOVER_TIMEOUT_MS = 350
+const DISCOVER_BATCH_SIZE = 28
+// Common home-router and phone-hotspot subnets to sweep even when we cannot learn our own prefix.
+const COMMON_SUBNET_PREFIXES = [
+  '192.168.31.',
+  '192.168.1.',
+  '192.168.0.',
+  '192.168.2.',
+  '192.168.50.'
+]
+const HOTSPOT_PREFIX = '172.20.10.'
+const HOTSPOT_HOSTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+let discoverTimer = null
+let discoveredServerUrl = null
+let lastLanPrefix = null
+
 const STATUS_LABEL = {
-  unconfigured: 'server not configured',
+  unconfigured: 'waiting for your phone',
   connecting: 'connecting',
   connected: 'connected',
-  'relay-offline': 'relay not running',
-  'host-offline': 'server unreachable',
+  'relay-offline': 'looking for your phone',
+  'host-offline': 'looking for your phone',
   'permission-denied': 'Chrome permission required',
   'signed-out': 'sign-in required',
-  'server-error': 'server error',
+  'server-error': 'connection problem',
   error: 'connection error'
 }
 
+// Plain, human language only. No mention of local-server.mjs / LaunchAgent / port 8787 / Node.js,
+// which mean nothing to an athlete and made the old popup look broken while it was simply waiting.
 const STATUS_DETAIL = {
-  unconfigured: 'Set the relay address in the extension popup.',
-  connecting: 'Checking the openGym relay connection.',
-  connected: 'Chrome is connected to the relay; waiting for a workout on your phone.',
-  'relay-offline': 'The local relay is not running. Open openGym Video Sync and check its menu-bar status.',
-  'host-offline': 'The openGym server could not be reached. Check the address and network.',
-  'permission-denied': 'Allow this extension access to the relay address in Chrome, then reconnect.',
-  'signed-out': 'Sign in to the openGym server in this Chrome profile, then reconnect.',
-  'server-error': 'The relay or server answered with an error.',
-  error: 'The video sync connection failed.'
+  unconfigured: 'Open openGym on your phone and enter the code shown above.',
+  connecting: 'Looking for your phone on the same Wi-Fi.',
+  connected: 'Connected. The workout and this video pause and resume together.',
+  'relay-offline': 'Looking for your phone on the same Wi-Fi. This happens automatically.',
+  'host-offline': 'Looking for your phone on the same Wi-Fi. This happens automatically.',
+  'permission-denied': 'Allow this extension access to your local network in Chrome, then click Reconnect.',
+  'signed-out': 'Sign in to openGym in this Chrome profile, then click Reconnect.',
+  'server-error': 'The connection failed. It will retry automatically.',
+  error: 'The connection failed. It will retry automatically.'
 }
 
+// While we are searching for the phone we are not broken, so a scary permanent red "!" would be a
+// lie. These states keep a calm (amber) badge and retry on their own.
+const SEARCHING_STATES = new Set(['unconfigured', 'connecting', 'relay-offline', 'host-offline'])
+
 const BADGE = {
-  unconfigured: { text: '', color: '#6b7280' },
+  unconfigured: { text: '...', color: '#b7791f' },
   connecting: { text: '...', color: '#b7791f' },
   connected: { text: 'on', color: '#1f9d55' },
-  'relay-offline': { text: 'OFF', color: '#b7791f' },
-  'host-offline': { text: 'OFF', color: '#b7791f' },
+  'relay-offline': { text: '...', color: '#b7791f' },
+  'host-offline': { text: '...', color: '#b7791f' },
   'permission-denied': { text: '!', color: '#c0392b' },
   'signed-out': { text: '!', color: '#c0392b' },
-  'server-error': { text: '!', color: '#c0392b' },
-  error: { text: '!', color: '#c0392b' }
+  'server-error': { text: '...', color: '#b7791f' },
+  error: { text: '...', color: '#b7791f' }
 }
 
 let current = { seq: 0, action: null, source: null, sessionId: null, videoUrl: null, boundTabId: null, online: false }
@@ -192,6 +223,144 @@ function retryDelayMs (attempt, randomValue = Math.random()) {
   return Math.round(base * (RETRY_JITTER_MIN + (RETRY_JITTER_MAX - RETRY_JITTER_MIN) * sample))
 }
 
+// ---- Pairing code ------------------------------------------------------------------------------
+// A 4-character code the athlete types into the phone. It is generated locally and stored, so the
+// popup can show it the instant it opens, even before any phone has been found.
+function generatePairCode (length = 4, randomValue = Math.random) {
+  let code = ''
+  for (let i = 0; i < length; i++) {
+    const r = Math.max(0, Math.min(0.999999, Number(randomValue()) || 0))
+    code += PAIRING_CHARS[Math.floor(r * PAIRING_CHARS.length)]
+  }
+  return code
+}
+
+function normalizePairCode (raw) {
+  if (typeof raw !== 'string') return ''
+  return raw.trim().toUpperCase()
+    .replace(/0/g, 'O')
+    .replace(/[IL]/g, '1')
+    .replace(/[^2-9A-Z]/g, '')
+    .slice(0, 8)
+}
+
+// Returns the stored pairing code, generating and saving a fresh one on first use.
+async function ensurePairCode () {
+  const { [PAIR_CODE_KEY]: stored } = await storageGet(PAIR_CODE_KEY)
+  if (typeof stored === 'string' && stored) return stored
+  const code = generatePairCode(4)
+  await storageSet({ [PAIR_CODE_KEY]: code })
+  return code
+}
+
+async function regeneratePairCode () {
+  const code = generatePairCode(4)
+  await storageSet({ [PAIR_CODE_KEY]: code })
+  return code
+}
+
+// ---- Candidate addresses -----------------------------------------------------------------------
+// Build the list of base URLs to probe. We cannot rely on window/RTCPeerConnection inside a
+// service worker, so the local /24 prefix is learned best-effort from RTCPeerConnection when the
+// host page can supply it, otherwise we sweep the common router/hotspot subnets.
+function candidateBaseUrls (opts = {}) {
+  const saved = normalizeServer(opts.savedServerUrl || '')
+  const prefix = typeof opts.subnetPrefix === 'string' && opts.subnetPrefix ? opts.subnetPrefix : lastLanPrefix
+  const urls = []
+  const seen = new Set()
+  const add = base => {
+    if (!base || seen.has(base)) return
+    seen.add(base)
+    urls.push(base)
+  }
+  // 1) The URL we last successfully connected to.
+  if (saved) add(saved)
+  // 2) Loopback: local E2E on the same Mac / iOS Simulator shares 127.0.0.1.
+  add('http://127.0.0.1:' + PHONE_RELAY_PORT)
+  add('http://localhost:' + PHONE_RELAY_PORT)
+  // 3) Learn our own /24 first (the most likely subnet), then the common ones.
+  const prefixes = []
+  if (prefix) prefixes.push(prefix)
+  for (const p of COMMON_SUBNET_PREFIXES) if (!prefixes.includes(p)) prefixes.push(p)
+  for (const p of prefixes) {
+    for (let host = 1; host <= 254; host++) add('http://' + p + host + ':' + PHONE_RELAY_PORT)
+  }
+  // 4) iPhone hotspot block.
+  for (const host of HOTSPOT_HOSTS) add('http://' + HOTSPOT_PREFIX + host + ':' + PHONE_RELAY_PORT)
+  return urls
+}
+
+function rememberLanPrefix (url) {
+  try {
+    const host = new URL(url).hostname
+    const m = /^(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}$/.exec(host)
+    if (m) lastLanPrefix = m[1] + '.'
+  } catch { /* not an IP URL */ }
+}
+
+// Probe one candidate: does its phone relay recognise our pairing code?
+// Resolves to the base URL on success, otherwise null. Never throws.
+async function probeCandidate (base, pairCode, timeoutMs = DISCOVER_TIMEOUT_MS) {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null
+  try {
+    const res = await fetch(base + '/pair/verify?code=' + encodeURIComponent(pairCode), {
+      method: 'GET',
+      cache: 'no-store',
+      credentials: 'omit',
+      signal: controller ? controller.signal : undefined
+    })
+    if (res && res.ok) {
+      let body = null
+      try { body = await res.json() } catch { body = null }
+      if (body && body.ok === true) return base
+    }
+    return null
+  } catch {
+    return null
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+// Scan all candidates in bounded concurrent batches. Stops as soon as one answers with ok:true.
+async function discoverPhoneByPairCode (pairCode, opts = {}) {
+  const code = normalizePairCode(pairCode)
+  if (!code) return null
+  const bases = opts.candidates && Array.isArray(opts.candidates)
+    ? opts.candidates
+    : candidateBaseUrls(opts)
+  const batchSize = Number(opts.batchSize) > 0 ? Number(opts.batchSize) : DISCOVER_BATCH_SIZE
+  const timeoutMs = Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : DISCOVER_TIMEOUT_MS
+  for (let i = 0; i < bases.length; i += batchSize) {
+    const batch = bases.slice(i, i + batchSize)
+    const results = await Promise.all(batch.map(base => probeCandidate(base, code, timeoutMs)))
+    const hit = results.find(Boolean)
+    if (hit) return hit
+  }
+  return null
+}
+
+// One discovery pass: if the current status means we are still looking for the phone, try to find
+// it, and on success save the address and (re)connect. Called on a timer, on reconnect, and at
+// startup. It is a no-op while already connected.
+async function runDiscoveryPass () {
+  const state = currentStatus.state
+  if (state === 'connected') return null
+  if (!SEARCHING_STATES.has(state)) return null
+  const code = await ensurePairCode()
+  const { [SERVER_KEY]: savedServerUrl } = await storageGet(SERVER_KEY)
+  const hit = await discoverPhoneByPairCode(code, { savedServerUrl })
+  if (!hit) return null
+  discoveredServerUrl = hit
+  rememberLanPrefix(hit)
+  const { [SERVER_KEY]: currentSaved } = await storageGet(SERVER_KEY)
+  if (currentSaved !== hit) await storageSet({ [SERVER_KEY]: hit })
+  if (currentStatus.state !== 'connected') connect()
+  return hit
+}
+
+
 function classifyHttpStatus (statusCode) {
   const code = Number(statusCode) || 0
   if (code === 401 || code === 403) {
@@ -235,6 +404,27 @@ function clearRetry () {
   retryAt = null
 }
 
+// A standing discovery loop that runs while we are looking for the phone (unconfigured /
+// relay-offline / host-offline). It is separate from the reconnect backoff: it keeps sweeping the
+// LAN every few seconds so a phone that starts hosting later is found on its own, without the
+// athlete having to do anything. It stays off in the Node tests.
+function scheduleDiscovery () {
+  if (globalThis.__OG_VIDEO_SYNC_TEST__) return
+  if (discoverTimer != null) return
+  discoverTimer = setInterval(() => {
+    runDiscoveryPass().catch(() => {})
+  }, DISCOVER_INTERVAL_MS)
+  // Kick one pass immediately so the first sweep is not delayed by a full interval.
+  runDiscoveryPass().catch(() => {})
+}
+
+function stopDiscovery () {
+  if (discoverTimer != null) {
+    clearInterval(discoverTimer)
+    discoverTimer = null
+  }
+}
+
 async function status (state, detail = '', meta = {}) {
   const nextDetail = detail || STATUS_DETAIL[state] || STATUS_LABEL[state] || state
   const attempt = Number.isFinite(meta.attempt) ? meta.attempt : currentStatus.attempt || 0
@@ -270,6 +460,7 @@ async function hasHostPermission (server) {
 
 function scheduleRetry (state, detail) {
   if (!RETRYABLE_STATES.has(state)) return null
+  scheduleDiscovery()
   const delay = retryDelayMs(retryAttempt)
   retryAttempt += 1
   retryAt = Date.now() + delay
@@ -478,7 +669,15 @@ async function command (cmd) {
   // may have paused it before starting). A reconnect replay never gets here: appliedSeq survives
   // the worker in session storage, so the same start is not applied twice.
   if (action === 'start' && playIntent === true) {
-    const play = await sendCommand(tab.id, 'resume')
+    // Carry the start position through to the resume so a video with a start timestamp
+    // (vstart / ?t=85) opens at that point. `force` is only set when a positive position is
+    // known, so a plain start still plays from wherever the tab already is.
+    const pos = Number(cmd?.pos)
+    const carriesPosition = Number.isFinite(pos) && pos > 0
+    const resumeCmd = carriesPosition
+      ? { action: 'resume', pos: cmd.pos, offset: cmd.offset, force: true }
+      : { action: 'resume' }
+    const play = await sendCommand(tab.id, resumeCmd)
     if (!play?.ok && play?.reason === 'blocked') {
       await status('connected', 'autoplay blocked: press play in Chrome')
       return { ok: true, tabId: tab.id, opened, playback: 'blocked' }
@@ -536,8 +735,16 @@ async function post (action, source) {
 
 function commandFor (next) {
   if (next.action === 'start') {
-    return typeof next.play === 'boolean'
-      ? { action: 'start', play: next.play }
+    const carriesPosition = Number.isFinite(Number(next.pos)) && Number(next.pos) > 0
+    if (typeof next.play === 'boolean') {
+      // Carry the start position (a vstart / ?t= timestamp) through to the tab so a workout
+      // that begins partway into the video opens and plays from that point, not from zero.
+      return carriesPosition
+        ? { action: 'start', play: next.play, pos: next.pos, offset: next.offset }
+        : { action: 'start', play: next.play }
+    }
+    return carriesPosition
+      ? { action: 'start', pos: next.pos, offset: next.offset }
       : { action: 'start' }
   }
   if (next.action === 'seek') {
@@ -672,7 +879,13 @@ async function connect () {
     abort = null
     const { [SERVER_KEY]: raw } = await storageGet(SERVER_KEY)
     const server = normalizeServer(raw)
-    if (!server) { await status('unconfigured', STATUS_DETAIL.unconfigured, { attempt: 0 }); return }
+    if (!server) {
+      // No address yet: fall into the phone-discovery state and let the discovery loop find one.
+      // This is not "broken", it is "waiting for your phone", so the popup shows a calm message.
+      await status('unconfigured', STATUS_DETAIL.unconfigured, { attempt: 0 })
+      scheduleDiscovery()
+      return
+    }
     if (!(await hasHostPermission(server))) {
       await status('permission-denied', STATUS_DETAIL['permission-denied'], { attempt: 0 })
       return
@@ -701,6 +914,8 @@ async function connect () {
     }
     if (!res.body) throw new Error('stream response has no body')
     retryAttempt = 0
+    // Found and connected: stop sweeping the LAN until the stream drops again.
+    stopDiscovery()
     await status('connected', connectionDetail(), { attempt: 0 })
     const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
     let buffer = ''
@@ -751,7 +966,14 @@ export {
   retryDelayMs,
   classifyFetchError,
   classifyHttpStatus,
-  isLocalRelay
+  isLocalRelay,
+  discoverPhoneByPairCode,
+  candidateBaseUrls,
+  generatePairCode,
+  normalizePairCode,
+  ensurePairCode,
+  regeneratePairCode,
+  runDiscoveryPass
 }
 
 // The Node tests import this module with a fake chrome namespace. Keeping the listeners behind
@@ -769,8 +991,13 @@ export const __test = {
   connection () {
     return { abort, connecting, retry, retryAt, retryAttempt, generation, reconnectQueued, seqLoaded }
   },
+  getDiscoveredServerUrl () { return discoveredServerUrl },
+  setLanPrefix (prefix) { lastLanPrefix = prefix || null },
   reset () {
     clearRetry()
+    stopDiscovery()
+    discoveredServerUrl = null
+    lastLanPrefix = null
     current = { seq: 0, action: null, source: null, sessionId: null, videoUrl: null, boundTabId: null, online: false }
     appliedSeq = 0
     appliedEpoch = null
@@ -793,8 +1020,12 @@ export const __test = {
 }
 
 if (!globalThis.__OG_VIDEO_SYNC_TEST__) {
-  chrome.runtime.onInstalled.addListener(() => { chrome.alarms.create(ALARM, { periodInMinutes: 1 }); connect() })
-  chrome.runtime.onStartup.addListener(() => connect())
+  chrome.runtime.onInstalled.addListener(() => {
+    chrome.alarms.create(ALARM, { periodInMinutes: 1 })
+    ensurePairCode().catch(() => {})
+    connect()
+  })
+  chrome.runtime.onStartup.addListener(() => { ensurePairCode().catch(() => {}); connect() })
   chrome.alarms.onAlarm.addListener(alarm => {
     if (alarm.name !== ALARM) return
     // The worker is terminated when it goes idle; the alarm is what brings the stream back. While
@@ -819,7 +1050,28 @@ if (!globalThis.__OG_VIDEO_SYNC_TEST__) {
       post(msg.action === 'pause' ? 'pause' : 'resume', 'video')
       return
     }
-    if (msg?.type === 'og:reconnect') { reconnectNow(); return }
+    if (msg?.type === 'og:reconnect') {
+      // A manual Reconnect always sweeps the LAN once before/around reconnecting, so a phone that
+      // just started hosting is picked up even if it was invisible a moment ago.
+      reconnectNow()
+      runDiscoveryPass().catch(() => {})
+      return
+    }
+    if (msg?.type === 'og:newpaircode') {
+      // New code from the popup's Refresh button: store it, then sweep the LAN for a phone that
+      // already knows this code.
+      regeneratePairCode()
+        .then(code => { respond?.({ ok: true, code }); runDiscoveryPass().catch(() => {}) })
+        .catch(() => respond?.({ ok: false }))
+      return true
+    }
+    if (msg?.type === 'og:ensurepaircode') {
+      // The popup asks for the code on open; generate one if this is the very first time.
+      ensurePairCode()
+        .then(code => respond?.({ ok: true, code }))
+        .catch(() => respond?.({ ok: false }))
+      return true
+    }
   })
 
   chrome.tabs.onRemoved.addListener(async tabId => {

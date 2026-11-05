@@ -13,7 +13,8 @@
   <div class="pair-card">
     <div class="pair-label">4-Digit Pairing Code</div>
     <div id="pair-code" class="pair-code">----</div>
-    <p class="pair-sub">Enter this code in openGym on your phone (Workout ⋯ &gt; Video sync) or connect on same Wi-Fi.</p>
+    <button id="refresh-code" class="link-button">Refresh code</button>
+    <p class="pair-sub">Enter this code in openGym on your phone (Settings → Computer connection), on the same Wi-Fi.</p>
   </div>
 
   <p id="status" class="status">Not connected</p>
@@ -23,8 +24,8 @@
   <details class="advanced">
     <summary>Advanced / Connection Address</summary>
     <div class="advanced-body">
-      <label for="server">Sync Server Address</label>
-      <input id="server" type="url" placeholder="http://127.0.0.1:8787" autocomplete="off" spellcheck="false">
+      <label for="server">Phone Address (optional)</label>
+      <input id="server" type="url" placeholder="found automatically on your Wi-Fi" autocomplete="off" spellcheck="false">
       <div class="row">
         <button id="save" class="primary">Save</button>
         <button id="retry">Reconnect</button>

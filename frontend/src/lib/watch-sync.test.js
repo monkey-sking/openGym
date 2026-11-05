@@ -3,7 +3,7 @@
 // watch's events applied once each through the workout screen's own actions, drained from the
 // native queue and acknowledged only when done.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildSnapshot, buildReady, applyEvents, bindWatchActions, bindWatchAppActions, drainWatchEvents, _setWatchPluginForTest, _resetWatchSync, SNAPSHOT_VERSION } from './watch-sync.js'
+import { buildSnapshot, buildReady, applyEvents, bindWatchActions, bindWatchAppActions, drainWatchEvents, startWatchSync, _setWatchPluginForTest, _resetWatchSync, SNAPSHOT_VERSION } from './watch-sync.js'
 
 const state = (over = {}) => ({
   unit: 'kg', restSec: 90, workouts: [], routines: [],
@@ -367,5 +367,91 @@ describe('patching a saved workout', () => {
     expect(s.workouts[0].entries[0].sets[0]).toMatchObject({ w: 65, r: 6, at: 3000 })
     expect(recount).toHaveBeenCalledTimes(2)
     expect(s.workouts[0].vol).toBe(1)
+  })
+})
+
+// The active-workout heartbeat: while a live workout runs, the snapshot is re-sent on a fixed
+// cadence even when nothing changed on the phone, so the watch re-converges after a dropped update
+// or a wake that fired no state change. It is armed only on the production entry (startWatchLink,
+// via heartbeat:true) so the fake-timer runAllTimers suites are not given a never-ending interval.
+describe('the active-workout heartbeat', () => {
+  const store = initial => {
+    let st = initial
+    const subs = new Set()
+    return {
+      getState: () => st,
+      setState: patch => { const prev = st; st = { ...st, ...patch }; subs.forEach(fn => fn(st, prev)) },
+      subscribe: fn => { subs.add(fn); return () => subs.delete(fn) },
+    }
+  }
+  const bridge = () => ({
+    status: vi.fn(async () => ({ supported: true, activated: true, paired: true, installed: true })),
+    sendSnapshot: vi.fn(async () => ({ sent: true })),
+    sendClips: vi.fn(async () => ({})),
+    openOnWatch: vi.fn(async () => ({ ok: true })),
+    drain: vi.fn(async () => ({ events: [] })),
+    ack: vi.fn(async () => ({})),
+    addListener: vi.fn(async () => ({ remove: () => {} })),
+    dropClips: vi.fn(async () => ({})),
+  })
+  const S0 = { unit: 'kg', restSec: 90, workouts: [], routines: [], active: null }
+  const live = { id: 'w-hb', name: 'Push', d: '2026-11-05', cur: 1, entries: [] }
+
+  it('re-sends the snapshot every heartbeat while a workout runs, and stops when it ends', async () => {
+    vi.useFakeTimers()
+    try {
+      const b = bridge()
+      _setWatchPluginForTest(b)
+      const st = store({ S: { ...S0, active: live } })
+      const stop = await startWatchSync({ useStore: st, useUI: store({ timer: null }), heartbeat: true })
+      await vi.advanceTimersByTimeAsync(500)
+      const afterStart = b.sendSnapshot.mock.calls.length
+      expect(afterStart).toBeGreaterThanOrEqual(1)
+
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(b.sendSnapshot.mock.calls.length).toBeGreaterThan(afterStart)
+      const oneBeat = b.sendSnapshot.mock.calls.length
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(b.sendSnapshot.mock.calls.length).toBeGreaterThan(oneBeat)
+
+      st.setState({ S: { ...S0, active: null } })
+      await vi.advanceTimersByTimeAsync(1000)
+      const afterEnd = b.sendSnapshot.mock.calls.length
+      await vi.advanceTimersByTimeAsync(15000)
+      expect(b.sendSnapshot.mock.calls.length).toBe(afterEnd)
+      stop()
+    } finally { vi.useRealTimers() }
+  })
+
+  it('stops the heartbeat when stop() is called', async () => {
+    vi.useFakeTimers()
+    try {
+      const b = bridge()
+      _setWatchPluginForTest(b)
+      const st = store({ S: { ...S0, active: live } })
+      const stop = await startWatchSync({ useStore: st, useUI: store({ timer: null }), heartbeat: true })
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(b.sendSnapshot.mock.calls.length).toBeGreaterThan(0)
+      stop()
+      const afterStop = b.sendSnapshot.mock.calls.length
+      await vi.advanceTimersByTimeAsync(15000)
+      expect(b.sendSnapshot.mock.calls.length).toBe(afterStop)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('does not heartbeat without the heartbeat flag (default), so the fake-timer suites stay finite', async () => {
+    vi.useFakeTimers()
+    try {
+      const b = bridge()
+      _setWatchPluginForTest(b)
+      const st = store({ S: { ...S0, active: live } })
+      const stop = await startWatchSync({ useStore: st, useUI: store({ timer: null }) })
+      await vi.advanceTimersByTimeAsync(500)
+      const afterStart = b.sendSnapshot.mock.calls.length
+      await vi.advanceTimersByTimeAsync(20000)
+      expect(b.sendSnapshot.mock.calls.length).toBe(afterStart)
+      stop()
+    } finally { vi.useRealTimers() }
   })
 })

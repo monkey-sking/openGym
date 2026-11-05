@@ -44,6 +44,60 @@ export const smOf = ex => {
 
 export const EXIDX = {}
 CATALOGUE.forEach(e => { EXIDX[e.id] = e })
+
+// A default follow-along video per exercise, so a plan built from the library still names a
+// video when a session starts without the athlete having picked one (docs/dev/VIDEO_SYNC.md,
+// handover item 2/4). Curated entries first, by catalogue id; every other exercise falls back
+// to its body part (and then a general technique channel). The value rides on the exercise
+// record as `url` so EXIDX[id].url has a video here, exactly where linkKind expects one.
+const EXVIDEOS_BY_ID = {
+  // chest
+  '0025': 'https://www.youtube.com/watch?v=rT7DgCr-3pg', // barbell bench press
+  '0047': 'https://www.youtube.com/watch?v=SrqOu55lrYU', // incline bench press
+  '0251': 'https://www.youtube.com/watch?v=2z8JmcrW-As', // chest dip
+  // shoulders
+  '0426': 'https://www.youtube.com/watch?v=qEwKCR5JCog', // overhead press
+  '0334': 'https://www.youtube.com/watch?v=3VcKaXpzqRo', // lateral raise
+  // upper arms
+  '0241': 'https://www.youtube.com/watch?v=2-LAMcpzODU', // triceps pushdown
+  '0031': 'https://www.youtube.com/watch?v=ykJmrZ5v0Oo', // barbell curl
+  '0313': 'https://www.youtube.com/watch?v=zC3nLlEvin4', // hammer curl
+  // back
+  '2330': 'https://www.youtube.com/watch?v=CAwf7n6Luuc', // lat pulldown
+  '0027': 'https://www.youtube.com/watch?v=kBWAon7ItDw', // bent over row
+  '1323': 'https://www.youtube.com/watch?v=GZbfZ033f74', // seated cable row
+  // upper legs
+  '0043': 'https://www.youtube.com/watch?v=ultWZbUMPL8', // back squat
+  '0085': 'https://www.youtube.com/watch?v=2SHsk9AzdjA', // romanian deadlift
+  '0739': 'https://www.youtube.com/watch?v=IZxyjW7MPJQ', // leg press
+  '0585': 'https://www.youtube.com/watch?v=YyvSfVjQeL0', // leg extension
+  '0586': 'https://www.youtube.com/watch?v=1Tq3QdYUuHs', // lying leg curl
+  // lower legs
+  '0605': 'https://www.youtube.com/watch?v=-M4-G8p8fmc'  // standing calf raise
+}
+const EXVIDEOS_BY_BP = {
+  chest: 'https://www.youtube.com/watch?v=rT7DgCr-3pg',
+  shoulders: 'https://www.youtube.com/watch?v=qEwKCR5JCog',
+  back: 'https://www.youtube.com/watch?v=kBWAon7ItDw',
+  'upper arms': 'https://www.youtube.com/watch?v=ykJmrZ5v0Oo',
+  'upper legs': 'https://www.youtube.com/watch?v=ultWZbUMPL8',
+  'lower legs': 'https://www.youtube.com/watch?v=-M4-G8p8fmc',
+  waist: 'https://www.youtube.com/watch?v=ASdvN_XEl_c',
+  cardio: 'https://www.youtube.com/watch?v=ml6cT4AZdqI',
+  neck: 'https://www.youtube.com/watch?v=X3Hm1jH3k1k'
+}
+const EXVIDEOS_FALLBACK = 'https://www.youtube.com/watch?v=ml6cT4AZdqI'
+
+/** The default tutorial/follow-along video for an exercise, or '' (a caller may still have a
+ *  better one from a plan or a note). Curated id first, then body part, then a general channel. */
+export const defaultExerciseVideo = ex => {
+  if (!ex) return ''
+  return EXVIDEOS_BY_ID[ex.id] || EXVIDEOS_BY_BP[ex.bp] || EXVIDEOS_FALLBACK
+}
+export const defaultExerciseVideoUrl = id => defaultExerciseVideo(EXIDX[id])
+// Stamp the default on the catalogue records so EXIDX[id].url is populated for every exercise.
+// A record that already names a video (a custom exercise, a mapped chapter) keeps its own.
+CATALOGUE.forEach(e => { if (!e.url) { const u = defaultExerciseVideo(e); if (u) e.url = u } })
 // The id of a drawing that is no exercise of its own (the female figure of a male exercise) looks
 // up the exercise it draws. Never stored by the app, but a plan file or an import may carry one.
 // Not enumerable, so anything that walks the index still sees every exercise once.

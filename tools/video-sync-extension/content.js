@@ -172,7 +172,25 @@
       announce()
       return { ok: true, action, paused: v.paused, ...(exact ? { seeked: true, target } : {}) }
     }
-    // start retargets the extension at this tab; end has nothing to undo. Neither touches playback.
+    // A start retargets the extension at this tab. When the workout names a start timestamp
+    // (vstart / ?t=85) and the video is not already there, seek to it so the follow-along
+    // begins from the right point. It does not touch play/pause; the background sends a
+    // separate resume for a play:true start.
+    if (action === 'start') {
+      const pos = Number(cmd?.pos)
+      const hasPos = Number.isFinite(pos)
+      const target = hasPos
+        ? Math.max(0, Math.min(v.duration || Infinity, pos + (Number(cmd?.offset) || 0)))
+        : null
+      if (target != null && target > 0 && Math.abs(v.currentTime - target) >= 1) {
+        suppressUntil = Date.now() + 1500
+        v.currentTime = target
+        announce()
+        return { ok: true, action, seeked: true, target, currentTime: v.currentTime }
+      }
+      return { ok: true, action }
+    }
+    // end has nothing to undo. It does not touch playback.
     return { ok: true, action }
   }
 
