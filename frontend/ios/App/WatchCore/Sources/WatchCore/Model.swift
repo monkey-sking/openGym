@@ -67,9 +67,12 @@ struct RestInfo: Codable, Equatable {
 }
 
 struct WorkInfo: Codable, Equatable {
-    var endsAt: Double
+    /// Running work has a deadline. Paused work omits it and carries `remainingSec` instead,
+    /// because the phone deliberately keeps its pre-pause deadline stale.
+    var endsAt: Double?
     var total: Double?
     var label: String?
+    var remainingSec: Double?
 }
 
 struct Entry: Codable, Equatable {

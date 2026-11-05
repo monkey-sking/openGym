@@ -35,6 +35,17 @@ final class SessionCoreTests: XCTestCase {
         XCTAssertNil(oldSnap.active?.work)
     }
 
+    func testPausedWorkCarriesItsFrozenRemainderWithoutAStaleDeadline() throws {
+        let json = """
+        {"v":1,"unit":"kg","active":{"id":"p1","name":"Push","unit":"kg","cur":0,"restSec":90,
+        "work":{"remainingSec":39,"total":45,"label":"Plank"},"entries":[]}}
+        """
+        let snap = try JSONDecoder().decode(Snapshot.self, from: Data(json.utf8))
+        XCTAssertNil(snap.active?.work?.endsAt)
+        XCTAssertEqual(snap.active?.work?.remainingSec, 39)
+        XCTAssertEqual(snap.active?.work?.label, "Plank")
+    }
+
     func workout(_ id: String, sets: [SetRow], cur: Int = 0) -> ActiveWorkout {
         ActiveWorkout(id: id, name: "Push", unit: "kg", cur: cur, restSec: 90, rest: nil,
                       entries: [Entry(id: "0025", name: "Bench Press", mode: "reps", restSec: nil, last: nil, sets: sets),
@@ -178,6 +189,33 @@ final class SessionCoreTests: XCTestCase {
         XCTAssertEqual(event?["wid"] as? String, "p1")
         s = SessionCore.applySnapshot(s, snap(workout("p1", sets: [row(60, 8)])))
         XCTAssertNil(s.workout, "a snapshot from before the phone dropped it does not bring it back")
+    }
+
+    func testAWorkoutFinishedHereCanStartAgainOnThePhoneAfterTheFinishWindow() {
+        var s = SessionCore.applySnapshot(SessionState(), snap(workout("p1", sets: [row(60, 8)])))
+        let (f, _) = SessionCore.finish(s, at: 176_000_000_000_000, id: "f1")
+        s = f
+        // The finish event is in ms; the phone's snapshot stamp is in seconds. Just past the
+        // finish, a delayed snapshot from before the phone applied the finish stays blocked.
+        s = SessionCore.applySnapshot(s, snap(workout("p1", sets: [row(60, 8)])), at: 176_000_000_030)
+        XCTAssertNil(s.workout)
+        XCTAssertTrue(s.finishedHere.contains("p1"))
+        // Today, long after: the phone has reused the id for a fresh run of the same workout.
+        let revived = SessionCore.applySnapshotResult(s, snap(workout("p1", sets: [row(60, 8)])), at: 176_000_000_080)
+        XCTAssertTrue(revived.accepted)
+        XCTAssertEqual(revived.state.workout?.id, "p1")
+        XCTAssertFalse(revived.state.finishedHere.contains("p1"), "the next finish must be recorded too")
+        XCTAssertFalse(revived.state.finishedAt?.keys.contains("p1") ?? true)
+    }
+
+    func testAnUnstampedSnapshotCannotReviveAWorkoutFinishedHere() {
+        var s = SessionCore.applySnapshot(SessionState(), snap(workout("p1", sets: [row(60, 8)])))
+        let (f, _) = SessionCore.finish(s, at: 176_000_000_000_000, id: "f1")
+        s = f
+        // An old phone sends no stamp; without ordering evidence it stays blocked.
+        s = SessionCore.applySnapshot(s, snap(workout("p1", sets: [row(60, 8)])))
+        XCTAssertNil(s.workout)
+        XCTAssertTrue(s.finishedHere.contains("p1"))
     }
 
     func testFinishedOnThePhoneEndsItHere() {

@@ -53,6 +53,10 @@ struct SessionState: Codable, Equatable {
     var startedHere: String?
     /// Sessions finished here that the phone may still report running for a while.
     var finishedHere: [String] = []
+    /// When each of those finished (ms since 1970, as in the finish event), so a phone snapshot
+    /// sent long after the finish can reuse the same workout id without being blocked forever.
+    /// Optional, like every field added later, so a state saved by an older build still loads.
+    var finishedAt: [String: Double]?
     /// Ticks made here, by `SessionCore.key` ("exerciseId#entryIndex#setIndex"), until a snapshot
     /// shows them.
     var pending: [String: PendingTick] = [:]
@@ -209,16 +213,24 @@ enum SessionCore {
         }
         var next = active
         if let finished = next.id, s.finishedHere.contains(finished) {
-            // This watch already finished it. A delayed snapshot cannot revive it, and must not
-            // end a different workout that is active here now.
-            if s.workout?.id == finished {
-                s.workout = nil
-                s.pending = [:]
-                s.skipped = nil
-                s.startedHere = nil
-                s.entryIndex = 0
+            // This watch already finished it. A snapshot from around the finish cannot revive it
+            // (the phone had not applied the finish yet), and must not end a different workout
+            // that is active here now. The phone stamps snapshots in seconds since 1970 while the
+            // finish event carries ms, so the window compares them in the same seconds unit.
+            let finishSec = (s.finishedAt?[finished] ?? 0) / 1000
+            if let sentAt = at, sentAt > finishSec + 60 {
+                s.finishedHere.removeAll { $0 == finished }
+                s.finishedAt?[finished] = nil
+            } else {
+                if s.workout?.id == finished {
+                    s.workout = nil
+                    s.pending = [:]
+                    s.skipped = nil
+                    s.startedHere = nil
+                    s.entryIndex = 0
+                }
+                return SnapshotApplyResult(state: s, abandonedWorkoutID: nil, phoneEndedWorkoutID: nil, accepted: true)
             }
-            return SnapshotApplyResult(state: s, abandonedWorkoutID: nil, phoneEndedWorkoutID: nil, accepted: true)
         }
         let same = next.id != nil && next.id == s.workout?.id
         let abandoned = !same ? s.workout?.id : nil
@@ -480,6 +492,10 @@ enum SessionCore {
         s.skipped = nil
         s.startedHere = nil
         if let wid = w.id { s.finishedHere = Array((s.finishedHere + [wid]).suffix(5)) }
+        if let wid = w.id {
+            if s.finishedAt == nil { s.finishedAt = [:] }
+            s.finishedAt![wid] = at
+        }
         return (s, ["id": id, "type": discard ? "discard" : "finish", "wid": w.id ?? "", "at": at])
     }
 
