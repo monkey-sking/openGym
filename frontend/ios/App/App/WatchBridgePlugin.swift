@@ -110,7 +110,7 @@ public class WatchBridgePlugin: CAPPlugin, CAPBridgedPlugin, WCSessionDelegate {
             return
         }
         let session = WCSession.default
-        let deadline = Date().addingTimeInterval(2)
+        let deadline = Date().addingTimeInterval(5)
 
         // WCSession.activate() finishes asynchronously. If the page calls just after a cold launch,
         // an immediate isPaired/isWatchAppInstalled read can still be false. Wait briefly for the
