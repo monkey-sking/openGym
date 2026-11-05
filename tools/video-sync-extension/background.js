@@ -209,8 +209,16 @@ const normalizeServer = raw => {
 
 function isLocalRelay (server) {
   try {
-    const host = new URL(server).hostname.toLowerCase()
-    return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]'
+    const u = new URL(server)
+    const host = u.hostname.toLowerCase()
+    if (host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]') return true
+    if (host.endsWith('.local')) return true
+    if (u.port === String(PHONE_RELAY_PORT)) return true
+    if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true
+    if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true
+    if (/^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(host)) return true
+    if (/^169\.254\.\d{1,3}\.\d{1,3}$/.test(host)) return true
+    return false
   } catch {
     return false
   }

@@ -174,3 +174,11 @@ test('discoverPhoneByPairCode rejects an empty code without fetching', async () 
   assert.equal(hit, null)
   assert.equal(data.fetchCalls.length, 0)
 })
+
+test('isLocalRelay treats phone LAN addresses and .local hosts as local relays without cookie auth', () => {
+  assert.equal(bg.isLocalRelay('http://192.168.31.88:8787'), true)
+  assert.equal(bg.isLocalRelay('http://172.20.10.1:8787'), true)
+  assert.equal(bg.isLocalRelay('http://10.0.0.12:8787'), true)
+  assert.equal(bg.isLocalRelay('http://iphone.local:8787'), true)
+  assert.equal(bg.isLocalRelay('https://gym.example'), false)
+})

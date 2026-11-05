@@ -1,9 +1,18 @@
 #!/bin/zsh
-# Double-click this file to run the openGym video-sync relay on this Mac.
-# Leave the Terminal window open while you train; closing it stops the relay.
+# Legacy entrypoint retained only so an older ~/Library/LaunchAgents/ai.opengym.video-sync-relay.plist
+# cleanly unregisters itself and exits 0 instead of holding port 8787 on the Mac.
+# The iPhone app now hosts the video-sync server directly on the local network.
 set -u
 SCRIPT_DIR="${0:A:h}"
 cd "$SCRIPT_DIR" || exit 1
+
+if [[ "${OPEN_GYM_LEGACY_LOCAL_SERVER:-}" != "1" && "${OPEN_GYM_NODE_CHECK_ONLY:-}" != "1" ]]; then
+  rm -f "$HOME/Library/LaunchAgents/ai.opengym.video-sync-relay.plist" >/dev/null 2>&1 || true
+  /bin/launchctl bootout "gui/$(id -u)/ai.opengym.video-sync-relay" >/dev/null 2>&1 || true
+  echo "openGym video sync no longer runs a server on the computer."
+  echo "Open the Chrome extension popup, read the 4-character pairing code, and enter it in openGym on your iPhone."
+  exit 0
+fi
 
 find_node () {
   local found
