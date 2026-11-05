@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# .githooks/pre-commit —— 语法错误不许进仓库（模板，按项目语言裁剪）
+# 新 clone 后跑一次：git config core.hooksPath .githooks（install.sh 已自动配）
+
+set -uo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+fail=0
+
+# Swift 项目：swiftc -parse（0.2 秒挡语法错误；类型错误由门禁第 8 项 build-for-testing 拦）
+if [ -d "$ROOT/App" ] || ls "$ROOT"/*.xcodeproj >/dev/null 2>&1; then
+  while IFS= read -r f; do
+    swiftc -parse "$f" 2>&1 | grep -q . && { echo "语法错误：$f"; fail=1; }
+  done < <(git diff --cached --name-only --diff-filter=ACM -- '*.swift')
+fi
+
+# JS/TS 项目：node --check
+if [ -f "$ROOT/package.json" ]; then
+  while IFS= read -r f; do
+    case "$f" in *.mjs|*.cjs) node --check "$f" || fail=1 ;; *.js) node --check "$f" || fail=1 ;; esac
+  done < <(git diff --cached --name-only --diff-filter=ACM -- '*.js' '*.mjs' '*.cjs')
+fi
+
+# 配置漂移类（LifeOS 教训）：改了生成源却没重新生成
+if [ -f "$ROOT/project.yml" ] && git diff --cached --name-only | grep -q '^project.yml$' \
+   && ! git diff --cached --name-only | grep -q 'project.pbxproj'; then
+  echo "改了 project.yml 但没跑 xcodegen generate"; fail=1
+fi
+
+[ "$fail" -eq 0 ] && echo "pre-commit：通过"
+exit $fail
