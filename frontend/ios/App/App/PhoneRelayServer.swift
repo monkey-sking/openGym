@@ -15,7 +15,7 @@ import Darwin
 
 let phoneRelayDefaultPort: UInt16 = 8787
 let phoneRelayBonjourName = "openGym Video Sync"
-let phoneRelayBonjourType = "_opengym._tcp."
+let phoneRelayBonjourType = "_opengym._tcp"
 // How recently the extension must have been heard from for extensionConnected to stay true.
 private let extensionStaleMilliseconds = 15_000
 // The pairing registry charset, matching tools/video-sync-extension/pairing.mjs exactly.
@@ -182,7 +182,6 @@ final class PhoneRelayServer {
         stopLocked()
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
-        parameters.includePeerToPeer = true
 
         let chosen: NWListener?
         if preferredPort != 0, let port = NWEndpoint.Port(rawValue: preferredPort) {
@@ -232,7 +231,6 @@ final class PhoneRelayServer {
                 self.listener = nil
                 let parameters = NWParameters.tcp
                 parameters.allowLocalEndpointReuse = true
-                parameters.includePeerToPeer = true
                 if let fallback = try? NWListener(using: parameters) {
                     self.configureAndStart(listener: fallback, completion: completion)
                 } else {

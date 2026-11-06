@@ -1,0 +1,951 @@
+{
+  "opengym_plan": 1,
+  "exported": "2026-11-06",
+  "name": "B站 48章核心跟练计划 (含视频同步与时间戳)",
+  "unit": "kg",
+  "week": {
+    "0": [
+      "core-video-48"
+    ],
+    "1": [
+      "core-video-48"
+    ],
+    "2": [
+      "core-video-48"
+    ],
+    "3": [
+      "core-video-48"
+    ],
+    "4": [
+      "core-video-48"
+    ],
+    "5": [
+      "core-video-48"
+    ],
+    "6": [
+      "core-video-48"
+    ]
+  },
+  "routines": [
+    {
+      "id": "core-video-48",
+      "name": "48章高强度核心 (视频跟练)",
+      "ex": [
+        {
+          "id": "core-20261101-01",
+          "sets": 1,
+          "mode": "time",
+          "sec": 5,
+          "restOff": true,
+          "vstart": 0,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=0",
+          "note": "第 01/48 章｜00:00-00:05｜准备开始核心训练｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=0"
+        },
+        {
+          "id": "core-20261101-02",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 5,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=5",
+          "note": "第 02/48 章｜00:05-00:45｜第 02/48 个动作：仰卧举腿｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=5"
+        },
+        {
+          "id": "core-20261101-03",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 45,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=45",
+          "note": "第 03/48 章｜00:45-01:25｜第 03/48 个动作：屈膝抬腿卷腹｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=45"
+        },
+        {
+          "id": "core-20261101-04",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 85,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=85",
+          "note": "第 04/48 章｜01:25-02:05｜第 04/48 个动作：仰卧起坐｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=85"
+        },
+        {
+          "id": "core-20261101-05",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 125,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=125",
+          "note": "第 05/48 章｜02:05-02:45｜第 05/48 个动作：平板后推登山｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=125"
+        },
+        {
+          "id": "core-20261101-06",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 165,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=165",
+          "note": "第 06/48 章｜02:45-03:25｜第 06/48 个动作：熊式平板｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=165"
+        },
+        {
+          "id": "core-20261101-07",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 205,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=205",
+          "note": "第 07/48 章｜03:25-04:05｜第 07/48 个动作：平板支撑｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=205"
+        },
+        {
+          "id": "core-20261101-08",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 245,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=245",
+          "note": "第 08/48 章｜04:05-04:45｜第 08/48 个动作：仰卧触踵｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=245"
+        },
+        {
+          "id": "core-20261101-09",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 285,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=285",
+          "note": "第 09/48 章｜04:45-05:25｜第 09/48 个动作：腹部真空｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=285"
+        },
+        {
+          "id": "core-20261101-10",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 325,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=325",
+          "note": "第 10/48 章｜05:25-06:05｜第 10/48 个动作：仰卧举腿｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=325"
+        },
+        {
+          "id": "core-20261101-11",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 365,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=365",
+          "note": "第 11/48 章｜06:05-06:45｜第 11/48 个动作：屈膝抬腿卷腹｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=365"
+        },
+        {
+          "id": "core-20261101-12",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 405,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=405",
+          "note": "第 12/48 章｜06:45-07:25｜第 12/48 个动作：仰卧起坐｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=405"
+        },
+        {
+          "id": "core-20261101-13",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 445,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=445",
+          "note": "第 13/48 章｜07:25-08:05｜第 13/48 个动作：平板后推登山｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=445"
+        },
+        {
+          "id": "core-20261101-14",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 485,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=485",
+          "note": "第 14/48 章｜08:05-08:45｜第 14/48 个动作：熊式平板｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=485"
+        },
+        {
+          "id": "core-20261101-15",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 525,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=525",
+          "note": "第 15/48 章｜08:45-09:25｜第 15/48 个动作：平板支撑｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=525"
+        },
+        {
+          "id": "core-20261101-16",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 565,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=565",
+          "note": "第 16/48 章｜09:25-10:05｜第 16/48 个动作：仰卧触踵｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=565"
+        },
+        {
+          "id": "core-20261101-17",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 605,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=605",
+          "note": "第 17/48 章｜10:05-10:45｜第 17/48 个动作：腹部真空｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=605"
+        },
+        {
+          "id": "core-20261101-18",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 645,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=645",
+          "note": "第 18/48 章｜10:45-11:25｜第 18/48 个动作：收腿内外｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=645"
+        },
+        {
+          "id": "core-20261101-19",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 685,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=685",
+          "note": "第 19/48 章｜11:25-12:05｜第 19/48 个动作：斜角抬腿变式｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=685"
+        },
+        {
+          "id": "core-20261101-20",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 725,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=725",
+          "note": "第 20/48 章｜12:05-12:45｜第 20/48 个动作：仰卧举腿｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=725"
+        },
+        {
+          "id": "core-20261101-21",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 765,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=765",
+          "note": "第 21/48 章｜12:45-13:25｜第 21/48 个动作：反向卷腹｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=765"
+        },
+        {
+          "id": "core-20261101-22",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 805,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=805",
+          "note": "第 22/48 章｜13:25-14:05｜第 22/48 个动作：空心支撑｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=805"
+        },
+        {
+          "id": "core-20261101-23",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 845,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=845",
+          "note": "第 23/48 章｜14:05-14:45｜第 23/48 个动作：仰卧起坐｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=845"
+        },
+        {
+          "id": "core-20261101-24",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 885,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=885",
+          "note": "第 24/48 章｜14:45-15:25｜第 24/48 个动作：半开合跳｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=885"
+        },
+        {
+          "id": "core-20261101-25",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 925,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=925",
+          "note": "第 25/48 章｜15:25-16:05｜第 25/48 个动作：腹部爬梯｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=925"
+        },
+        {
+          "id": "core-20261101-26",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 965,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=965",
+          "note": "第 26/48 章｜16:05-16:45｜第 26/48 个动作：自行车卷腹｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=965"
+        },
+        {
+          "id": "core-20261101-27",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1005,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1005",
+          "note": "第 27/48 章｜16:45-17:25｜第 27/48 个动作：死虫式｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1005"
+        },
+        {
+          "id": "core-20261101-28",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1045,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1045",
+          "note": "第 28/48 章｜17:25-18:05｜第 28/48 个动作：坐姿自行车｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1045"
+        },
+        {
+          "id": "core-20261101-29",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1085,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1085",
+          "note": "第 29/48 章｜18:05-18:45｜第 29/48 个动作：眼镜蛇式｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1085"
+        },
+        {
+          "id": "core-20261101-30",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1125,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1125",
+          "note": "第 30/48 章｜18:45-19:25｜第 30/48 个动作：转体仰卧起坐｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1125"
+        },
+        {
+          "id": "core-20261101-31",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1165,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1165",
+          "note": "第 31/48 章｜19:25-20:05｜第 31/48 个动作：仰卧触脚跟｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1165"
+        },
+        {
+          "id": "core-20261101-32",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1205,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1205",
+          "note": "第 32/48 章｜20:05-20:45｜第 32/48 个动作：低位平板支撑｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1205"
+        },
+        {
+          "id": "core-20261101-33",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1245,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1245",
+          "note": "第 33/48 章｜20:45-21:25｜第 33/48 个动作：垫高单腿抬腿｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1245"
+        },
+        {
+          "id": "core-20261101-34",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1285,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1285",
+          "note": "第 34/48 章｜21:25-22:05｜第 34/48 个动作：垫高自行车卷腹｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1285"
+        },
+        {
+          "id": "core-20261101-35",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1325,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1325",
+          "note": "第 35/48 章｜22:05-22:45｜第 35/48 个动作：膝触肘卷腹｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1325"
+        },
+        {
+          "id": "core-20261101-36",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1365,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1365",
+          "note": "第 36/48 章｜22:45-23:25｜第 36/48 个动作：卷腹｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1365"
+        },
+        {
+          "id": "core-20261101-37",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1405,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1405",
+          "note": "第 37/48 章｜23:25-24:05｜第 37/48 个动作：仰卧举腿｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1405"
+        },
+        {
+          "id": "core-20261101-38",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1445,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1445",
+          "note": "第 38/48 章｜24:05-24:45｜第 38/48 个动作：死虫式｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1445"
+        },
+        {
+          "id": "core-20261101-39",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1485,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1485",
+          "note": "第 39/48 章｜24:45-25:25｜第 39/48 个动作：熊式触肩收膝｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1485"
+        },
+        {
+          "id": "core-20261101-40",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1525,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1525",
+          "note": "第 40/48 章｜25:25-26:05｜第 40/48 个动作：熊式支撑踢腿｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1525"
+        },
+        {
+          "id": "core-20261101-41",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1565,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1565",
+          "note": "第 41/48 章｜26:05-26:45｜第 41/48 个动作：交叉登山跑｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1565"
+        },
+        {
+          "id": "core-20261101-42",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1605,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1605",
+          "note": "第 42/48 章｜26:45-27:25｜第 42/48 个动作：低位平板支撑｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1605"
+        },
+        {
+          "id": "core-20261101-43",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1645,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1645",
+          "note": "第 43/48 章｜27:25-28:05｜第 43/48 个动作：坐姿自行车｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1645"
+        },
+        {
+          "id": "core-20261101-44",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1685,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1685",
+          "note": "第 44/48 章｜28:05-28:45｜第 44/48 个动作：收腿内外｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1685"
+        },
+        {
+          "id": "core-20261101-45",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1725,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1725",
+          "note": "第 45/48 章｜28:45-29:25｜第 45/48 个动作：平板转金字塔｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1725"
+        },
+        {
+          "id": "core-20261101-46",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1765,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1765",
+          "note": "第 46/48 章｜29:25-30:05｜第 46/48 个动作：平板触肩碰膝｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1765"
+        },
+        {
+          "id": "core-20261101-47",
+          "sets": 1,
+          "mode": "time",
+          "sec": 40,
+          "restOff": true,
+          "vstart": 1805,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1805",
+          "note": "第 47/48 章｜30:05-30:45｜第 47/48 个动作：鸟狗式｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1805"
+        },
+        {
+          "id": "core-20261101-48",
+          "sets": 1,
+          "mode": "time",
+          "sec": 13,
+          "restOff": true,
+          "vstart": 1845,
+          "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1845",
+          "note": "第 48/48 章｜30:45-30:58｜训练结束与放松｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1845"
+        }
+      ]
+    }
+  ],
+  "customEx": [
+    {
+      "id": "core-20261101-01",
+      "n": "01 准备",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=0",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=0",
+      "vstart": 0,
+      "desc": "第 01/48 章｜00:00-00:05｜准备开始核心训练｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=0"
+    },
+    {
+      "id": "core-20261101-02",
+      "n": "02 仰卧举腿",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=5",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=5",
+      "vstart": 5,
+      "desc": "第 02/48 章｜00:05-00:45｜第 02/48 个动作：仰卧举腿｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=5"
+    },
+    {
+      "id": "core-20261101-03",
+      "n": "03 屈膝抬腿卷腹",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=45",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=45",
+      "vstart": 45,
+      "desc": "第 03/48 章｜00:45-01:25｜第 03/48 个动作：屈膝抬腿卷腹｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=45"
+    },
+    {
+      "id": "core-20261101-04",
+      "n": "04 仰卧起坐",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=85",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=85",
+      "vstart": 85,
+      "desc": "第 04/48 章｜01:25-02:05｜第 04/48 个动作：仰卧起坐｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=85"
+    },
+    {
+      "id": "core-20261101-05",
+      "n": "05 平板后推登山",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=125",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=125",
+      "vstart": 125,
+      "desc": "第 05/48 章｜02:05-02:45｜第 05/48 个动作：平板后推登山｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=125"
+    },
+    {
+      "id": "core-20261101-06",
+      "n": "06 熊式平板",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=165",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=165",
+      "vstart": 165,
+      "desc": "第 06/48 章｜02:45-03:25｜第 06/48 个动作：熊式平板｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=165"
+    },
+    {
+      "id": "core-20261101-07",
+      "n": "07 平板支撑",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=205",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=205",
+      "vstart": 205,
+      "desc": "第 07/48 章｜03:25-04:05｜第 07/48 个动作：平板支撑｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=205"
+    },
+    {
+      "id": "core-20261101-08",
+      "n": "08 仰卧触踵",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=245",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=245",
+      "vstart": 245,
+      "desc": "第 08/48 章｜04:05-04:45｜第 08/48 个动作：仰卧触踵｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=245"
+    },
+    {
+      "id": "core-20261101-09",
+      "n": "09 腹部真空",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=285",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=285",
+      "vstart": 285,
+      "desc": "第 09/48 章｜04:45-05:25｜第 09/48 个动作：腹部真空｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=285"
+    },
+    {
+      "id": "core-20261101-10",
+      "n": "10 仰卧举腿",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=325",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=325",
+      "vstart": 325,
+      "desc": "第 10/48 章｜05:25-06:05｜第 10/48 个动作：仰卧举腿｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=325"
+    },
+    {
+      "id": "core-20261101-11",
+      "n": "11 屈膝抬腿卷腹",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=365",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=365",
+      "vstart": 365,
+      "desc": "第 11/48 章｜06:05-06:45｜第 11/48 个动作：屈膝抬腿卷腹｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=365"
+    },
+    {
+      "id": "core-20261101-12",
+      "n": "12 仰卧起坐",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=405",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=405",
+      "vstart": 405,
+      "desc": "第 12/48 章｜06:45-07:25｜第 12/48 个动作：仰卧起坐｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=405"
+    },
+    {
+      "id": "core-20261101-13",
+      "n": "13 平板后推登山",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=445",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=445",
+      "vstart": 445,
+      "desc": "第 13/48 章｜07:25-08:05｜第 13/48 个动作：平板后推登山｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=445"
+    },
+    {
+      "id": "core-20261101-14",
+      "n": "14 熊式平板",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=485",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=485",
+      "vstart": 485,
+      "desc": "第 14/48 章｜08:05-08:45｜第 14/48 个动作：熊式平板｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=485"
+    },
+    {
+      "id": "core-20261101-15",
+      "n": "15 平板支撑",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=525",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=525",
+      "vstart": 525,
+      "desc": "第 15/48 章｜08:45-09:25｜第 15/48 个动作：平板支撑｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=525"
+    },
+    {
+      "id": "core-20261101-16",
+      "n": "16 仰卧触踵",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=565",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=565",
+      "vstart": 565,
+      "desc": "第 16/48 章｜09:25-10:05｜第 16/48 个动作：仰卧触踵｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=565"
+    },
+    {
+      "id": "core-20261101-17",
+      "n": "17 腹部真空",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=605",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=605",
+      "vstart": 605,
+      "desc": "第 17/48 章｜10:05-10:45｜第 17/48 个动作：腹部真空｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=605"
+    },
+    {
+      "id": "core-20261101-18",
+      "n": "18 收腿内外",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=645",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=645",
+      "vstart": 645,
+      "desc": "第 18/48 章｜10:45-11:25｜第 18/48 个动作：收腿内外｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=645"
+    },
+    {
+      "id": "core-20261101-19",
+      "n": "19 斜角抬腿变式",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=685",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=685",
+      "vstart": 685,
+      "desc": "第 19/48 章｜11:25-12:05｜第 19/48 个动作：斜角抬腿变式｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=685"
+    },
+    {
+      "id": "core-20261101-20",
+      "n": "20 仰卧举腿",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=725",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=725",
+      "vstart": 725,
+      "desc": "第 20/48 章｜12:05-12:45｜第 20/48 个动作：仰卧举腿｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=725"
+    },
+    {
+      "id": "core-20261101-21",
+      "n": "21 反向卷腹",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=765",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=765",
+      "vstart": 765,
+      "desc": "第 21/48 章｜12:45-13:25｜第 21/48 个动作：反向卷腹｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=765"
+    },
+    {
+      "id": "core-20261101-22",
+      "n": "22 空心支撑",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=805",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=805",
+      "vstart": 805,
+      "desc": "第 22/48 章｜13:25-14:05｜第 22/48 个动作：空心支撑｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=805"
+    },
+    {
+      "id": "core-20261101-23",
+      "n": "23 仰卧起坐",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=845",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=845",
+      "vstart": 845,
+      "desc": "第 23/48 章｜14:05-14:45｜第 23/48 个动作：仰卧起坐｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=845"
+    },
+    {
+      "id": "core-20261101-24",
+      "n": "24 半开合跳",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=885",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=885",
+      "vstart": 885,
+      "desc": "第 24/48 章｜14:45-15:25｜第 24/48 个动作：半开合跳｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=885"
+    },
+    {
+      "id": "core-20261101-25",
+      "n": "25 腹部爬梯",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=925",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=925",
+      "vstart": 925,
+      "desc": "第 25/48 章｜15:25-16:05｜第 25/48 个动作：腹部爬梯｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=925"
+    },
+    {
+      "id": "core-20261101-26",
+      "n": "26 自行车卷腹",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=965",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=965",
+      "vstart": 965,
+      "desc": "第 26/48 章｜16:05-16:45｜第 26/48 个动作：自行车卷腹｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=965"
+    },
+    {
+      "id": "core-20261101-27",
+      "n": "27 死虫式",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1005",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1005",
+      "vstart": 1005,
+      "desc": "第 27/48 章｜16:45-17:25｜第 27/48 个动作：死虫式｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1005"
+    },
+    {
+      "id": "core-20261101-28",
+      "n": "28 坐姿自行车",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1045",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1045",
+      "vstart": 1045,
+      "desc": "第 28/48 章｜17:25-18:05｜第 28/48 个动作：坐姿自行车｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1045"
+    },
+    {
+      "id": "core-20261101-29",
+      "n": "29 眼镜蛇式",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1085",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1085",
+      "vstart": 1085,
+      "desc": "第 29/48 章｜18:05-18:45｜第 29/48 个动作：眼镜蛇式｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1085"
+    },
+    {
+      "id": "core-20261101-30",
+      "n": "30 转体仰卧起坐",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1125",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1125",
+      "vstart": 1125,
+      "desc": "第 30/48 章｜18:45-19:25｜第 30/48 个动作：转体仰卧起坐｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1125"
+    },
+    {
+      "id": "core-20261101-31",
+      "n": "31 仰卧触脚跟",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1165",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1165",
+      "vstart": 1165,
+      "desc": "第 31/48 章｜19:25-20:05｜第 31/48 个动作：仰卧触脚跟｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1165"
+    },
+    {
+      "id": "core-20261101-32",
+      "n": "32 低位平板支撑",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1205",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1205",
+      "vstart": 1205,
+      "desc": "第 32/48 章｜20:05-20:45｜第 32/48 个动作：低位平板支撑｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1205"
+    },
+    {
+      "id": "core-20261101-33",
+      "n": "33 垫高单腿抬腿",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1245",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1245",
+      "vstart": 1245,
+      "desc": "第 33/48 章｜20:45-21:25｜第 33/48 个动作：垫高单腿抬腿｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1245"
+    },
+    {
+      "id": "core-20261101-34",
+      "n": "34 垫高自行车卷腹",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1285",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1285",
+      "vstart": 1285,
+      "desc": "第 34/48 章｜21:25-22:05｜第 34/48 个动作：垫高自行车卷腹｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1285"
+    },
+    {
+      "id": "core-20261101-35",
+      "n": "35 膝触肘卷腹",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1325",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1325",
+      "vstart": 1325,
+      "desc": "第 35/48 章｜22:05-22:45｜第 35/48 个动作：膝触肘卷腹｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1325"
+    },
+    {
+      "id": "core-20261101-36",
+      "n": "36 卷腹",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1365",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1365",
+      "vstart": 1365,
+      "desc": "第 36/48 章｜22:45-23:25｜第 36/48 个动作：卷腹｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1365"
+    },
+    {
+      "id": "core-20261101-37",
+      "n": "37 仰卧举腿",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1405",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1405",
+      "vstart": 1405,
+      "desc": "第 37/48 章｜23:25-24:05｜第 37/48 个动作：仰卧举腿｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1405"
+    },
+    {
+      "id": "core-20261101-38",
+      "n": "38 死虫式",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1445",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1445",
+      "vstart": 1445,
+      "desc": "第 38/48 章｜24:05-24:45｜第 38/48 个动作：死虫式｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1445"
+    },
+    {
+      "id": "core-20261101-39",
+      "n": "39 熊式触肩收膝",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1485",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1485",
+      "vstart": 1485,
+      "desc": "第 39/48 章｜24:45-25:25｜第 39/48 个动作：熊式触肩收膝｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1485"
+    },
+    {
+      "id": "core-20261101-40",
+      "n": "40 熊式支撑踢腿",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1525",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1525",
+      "vstart": 1525,
+      "desc": "第 40/48 章｜25:25-26:05｜第 40/48 个动作：熊式支撑踢腿｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1525"
+    },
+    {
+      "id": "core-20261101-41",
+      "n": "41 交叉登山跑",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1565",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1565",
+      "vstart": 1565,
+      "desc": "第 41/48 章｜26:05-26:45｜第 41/48 个动作：交叉登山跑｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1565"
+    },
+    {
+      "id": "core-20261101-42",
+      "n": "42 低位平板支撑",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1605",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1605",
+      "vstart": 1605,
+      "desc": "第 42/48 章｜26:45-27:25｜第 42/48 个动作：低位平板支撑｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1605"
+    },
+    {
+      "id": "core-20261101-43",
+      "n": "43 坐姿自行车",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1645",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1645",
+      "vstart": 1645,
+      "desc": "第 43/48 章｜27:25-28:05｜第 43/48 个动作：坐姿自行车｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1645"
+    },
+    {
+      "id": "core-20261101-44",
+      "n": "44 收腿内外",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1685",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1685",
+      "vstart": 1685,
+      "desc": "第 44/48 章｜28:05-28:45｜第 44/48 个动作：收腿内外｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1685"
+    },
+    {
+      "id": "core-20261101-45",
+      "n": "45 平板转金字塔",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1725",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1725",
+      "vstart": 1725,
+      "desc": "第 45/48 章｜28:45-29:25｜第 45/48 个动作：平板转金字塔｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1725"
+    },
+    {
+      "id": "core-20261101-46",
+      "n": "46 平板触肩碰膝",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1765",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1765",
+      "vstart": 1765,
+      "desc": "第 46/48 章｜29:25-30:05｜第 46/48 个动作：平板触肩碰膝｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1765"
+    },
+    {
+      "id": "core-20261101-47",
+      "n": "47 鸟狗式",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1805",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1805",
+      "vstart": 1805,
+      "desc": "第 47/48 章｜30:05-30:45｜第 47/48 个动作：鸟狗式｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1805"
+    },
+    {
+      "id": "core-20261101-48",
+      "n": "48 收尾",
+      "bp": "core",
+      "url": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1845",
+      "videoUrl": "https://www.bilibili.com/video/BV1Jw411c7JV/?t=1845",
+      "vstart": 1845,
+      "desc": "第 48/48 章｜30:45-30:58｜训练结束与放松｜对应视频：https://www.bilibili.com/video/BV1Jw411c7JV/?t=1845"
+    }
+  ]
+}

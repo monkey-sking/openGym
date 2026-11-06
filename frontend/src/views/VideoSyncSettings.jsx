@@ -321,6 +321,9 @@ export default function VideoSyncSettingsPage() {
           return
         }
       }
+      if (!resolved && MOBILE) {
+        resolved = await verifyPairingCode(code)
+      }
       if (resolved) {
         writeVideoSyncServer(resolved)
         setServer(resolved)

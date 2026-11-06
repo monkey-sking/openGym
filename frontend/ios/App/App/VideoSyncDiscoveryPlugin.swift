@@ -147,7 +147,7 @@ public class VideoSyncDiscoveryPlugin: CAPPlugin, CAPBridgedPlugin, NetServiceBr
             self.timeoutWorkItem = item
             DispatchQueue.main.asyncAfter(deadline: .now() + max(1.0, timeoutSec), execute: item)
 
-            b.searchForServices(ofType: "_opengym._tcp.", inDomain: "local.")
+            b.searchForServices(ofType: "_opengym._tcp", inDomain: "local.")
         }
     }
 
