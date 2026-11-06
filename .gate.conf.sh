@@ -149,7 +149,7 @@ case_version_drift() {
 import sys
 p = sys.argv[1]
 s = open(p).read()
-open(p, "w").write(s.replace("CURRENT_PROJECT_VERSION = 68;", "CURRENT_PROJECT_VERSION = 99999;", 1))
+open(p, "w").write(s.replace("CURRENT_PROJECT_VERSION = 69;", "CURRENT_PROJECT_VERSION = 99999;", 1))
 PY
   echo "99999"
 }

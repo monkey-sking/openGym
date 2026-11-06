@@ -182,6 +182,7 @@ final class PhoneRelayServer {
         stopLocked()
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
+        parameters.includePeerToPeer = true
 
         let chosen: NWListener?
         if preferredPort != 0, let port = NWEndpoint.Port(rawValue: preferredPort) {
@@ -220,23 +221,24 @@ final class PhoneRelayServer {
                 let info = self.currentInfo(port: port)
                 DispatchQueue.main.async { completion(.success(info)) }
             case .waiting:
-                // e.g. port in use; try the fallback path.
+                // Normal transient state while network interfaces are acquiring addresses.
+                // Do NOT cancel the listener here.
+                break
+            case .failed(let error):
+                // If the preferred port (8787) failed to bind, fall back to a dynamic port once.
                 listener.stateUpdateHandler = nil
                 listener.service = nil
                 listener.cancel()
                 self.listener = nil
                 let parameters = NWParameters.tcp
                 parameters.allowLocalEndpointReuse = true
+                parameters.includePeerToPeer = true
                 if let fallback = try? NWListener(using: parameters) {
                     self.configureAndStart(listener: fallback, completion: completion)
                 } else {
                     DispatchQueue.main.async {
-                        completion(.failure("The phone's video-sync server could not start."))
+                        completion(.failure(error.localizedDescription))
                     }
-                }
-            case .failed(let error):
-                DispatchQueue.main.async {
-                    completion(.failure(error.localizedDescription))
                 }
             default:
                 break
