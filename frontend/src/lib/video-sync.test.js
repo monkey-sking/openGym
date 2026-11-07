@@ -6,7 +6,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 
 vi.mock('./api.js', () => ({ api: vi.fn(() => Promise.resolve({ ok: true })) }))
 
-import { startVideoSync, videoSyncSessionId, videoSyncUrl, videoSyncPos, extractVideoUrl, parseVideoStartSec, discoverVideoSyncRelay, verifyPairingCode, _resetVideoSyncDiscoveryForTests } from './video-sync.js'
+import { startVideoSync, videoSyncSessionId, videoSyncUrl, videoSyncPos, extractVideoUrl, parseVideoStartSec, discoverVideoSyncRelay, verifyPairingCode, _resetVideoSyncDiscoveryForTests, entryVideoUrl, entryVideoTime, fmtVideoTime } from './video-sync.js'
 import { registerCustom } from './exercises.js'
 import { isPaused, pauseActive, resumeActive } from './workout-pause.js'
 import { videoPlanBundle } from './video-plan.js'
@@ -627,5 +627,37 @@ describe('discoverVideoSyncRelay over Wi-Fi', () => {
     const url = await verifyPairingCode('7fek')
     expect(url).toBe('http://192.168.31.88:8787')
     expect(mobileMocks.registerPairCode).toHaveBeenCalledWith({ code: '7FEK' })
+  })
+})
+
+describe('entryVideoUrl, entryVideoTime, and fmtVideoTime helpers', () => {
+  it('entryVideoUrl resolves url from videoUrl, note or catalogue', () => {
+    expect(entryVideoUrl({ videoUrl: BV })).toBe(BV)
+    expect(entryVideoUrl({ note: 'see ' + BV })).toBe(BV)
+    expect(entryVideoUrl({ target: { videoUrl: BV2 } })).toBe(BV2)
+    expect(entryVideoUrl({})).toBe(null)
+    expect(entryVideoUrl(null)).toBe(null)
+  })
+
+  it('entryVideoTime resolves start seconds across vstart, note clock and URL ?t=', () => {
+    expect(entryVideoTime({ target: { vstart: 120 } })).toBe(120)
+    expect(entryVideoTime({ vstart: 45 })).toBe(45)
+    expect(entryVideoTime({ note: 'chapter 02:15 start' })).toBe(135)
+    expect(entryVideoTime({ videoUrl: BV + '?t=90' })).toBe(90)
+    expect(entryVideoTime({ videoUrl: BV })).toBe(null)
+    expect(entryVideoTime({})).toBe(null)
+    expect(entryVideoTime(null)).toBe(null)
+  })
+
+  it('fmtVideoTime formats seconds cleanly into mm:ss and hh:mm:ss', () => {
+    expect(fmtVideoTime(0)).toBe('0:00')
+    expect(fmtVideoTime(5)).toBe('0:05')
+    expect(fmtVideoTime(75)).toBe('1:15')
+    expect(fmtVideoTime(195)).toBe('3:15')
+    expect(fmtVideoTime(3600)).toBe('1:00:00')
+    expect(fmtVideoTime(3665)).toBe('1:01:05')
+    expect(fmtVideoTime(null)).toBe(null)
+    expect(fmtVideoTime(undefined)).toBe(null)
+    expect(fmtVideoTime(NaN)).toBe(null)
   })
 })

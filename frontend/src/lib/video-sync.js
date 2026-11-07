@@ -84,7 +84,7 @@ export function parseVideoStartSec(url) {
 // Every place the URL for an entry may come from, best first. A block's own source link
 // (videoUrl / target.videoUrl) is what a follow-along plan put there; then a link stored on the
 // entry or target; then one written in the note; then the catalogue/custom exercise's default.
-const entryVideoSources = entry => [
+export const entryVideoSources = entry => [
   entry?.videoUrl, entry?.target?.videoUrl,
   entry?.url, entry?.target?.url,
   entry?.note, entry?.target?.note,
@@ -93,13 +93,53 @@ const entryVideoSources = entry => [
   entry?.id != null ? EXIDX[entry.id]?.desc : null
 ]
 
-export const videoSyncUrl = A => {
-  const entry = A?.entries?.[A?.cur]
+export function entryVideoUrl(entry) {
   for (const raw of entryVideoSources(entry)) {
     const url = extractVideoUrl(raw)
     if (url) return url.slice(0, 500)
   }
   return null
+}
+
+export function entryVideoTime(entry) {
+  if (typeof entry?.target?.vstart === "number" && Number.isFinite(entry.target.vstart)) {
+    return Math.max(0, Math.round(entry.target.vstart))
+  }
+  if (typeof entry?.vstart === "number" && Number.isFinite(entry.vstart)) {
+    return Math.max(0, Math.round(entry.vstart))
+  }
+  const note = entry?.target?.note || entry?.note || ""
+  if (typeof note === "string") {
+    const m = /(\d+):(\d{2})/.exec(note)
+    if (m) {
+      return Math.max(0, Number(m[1]) * 60 + Number(m[2]))
+    }
+  }
+  const url = entryVideoUrl(entry)
+  const urlStart = parseVideoStartSec(url)
+  if (urlStart != null) {
+    return Math.max(0, Math.round(urlStart))
+  }
+  return null
+}
+
+export function fmtVideoTime(sec) {
+  if (sec == null || !Number.isFinite(sec)) return null
+  const s = Math.max(0, Math.floor(sec))
+  const m = Math.floor(s / 60)
+  const remS = s % 60
+  if (m >= 60) {
+    const h = Math.floor(m / 60)
+    const remM = Math.floor((s % 3600) / 60)
+    const ss = s % 60
+    return `${h}:${String(remM).padStart(2, "0")}:${String(ss).padStart(2, "0")}`
+  }
+  return `${m}:${String(remS).padStart(2, "0")}`
+}
+
+export const videoSyncUrl = A => {
+  const entry = A?.entries?.[A?.cur]
+  return entryVideoUrl(entry)
 }
 
 // The server URL configured for local direct relay, stored in localStorage on this phone.

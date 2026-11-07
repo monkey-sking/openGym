@@ -23,11 +23,12 @@ import WorkoutScrollAnchor from '../components/WorkoutScrollAnchor.jsx'
 import WorkoutChips from '../components/WorkoutChips.jsx'
 import { supersetMeta } from '../lib/superset-meta.js'
 import WorkoutThumb, { hasWorkoutMedia } from '../components/WorkoutThumb.jsx'
+import VideoPill from '../components/VideoPill.jsx'
 import { workoutSettingsSheet } from '../components/WorkoutSettingsSheet.jsx'
 import { SessionMapButton } from '../components/SessionMuscles.jsx'
 import { durationSheet } from '../components/DurationWheel.jsx'
 import { REST_MAX, fmtRest, restWheelValue } from '../lib/duration.js'
-import { startFlow, exercisePicker, exConfigSheet, exerciseDetailSheet, finishWorkout, exitWorkoutEdit, workoutCompleteSheet, confirmSheet, exerciseNoteSheet, sessionNoteSheet, renameWorkoutSheet, swapActiveWorkoutExercise, barWeightSheet, menuSheet, effortPickerSheet, exerciseHistorySheet, addRoutineToSessionSheet, finishWorkoutSheet, finishWorkoutNow, swapActiveWorkoutToBackup } from '../sheets.jsx'
+import { videoSyncSheet, startFlow, exercisePicker, exConfigSheet, exerciseDetailSheet, finishWorkout, exitWorkoutEdit, workoutCompleteSheet, confirmSheet, exerciseNoteSheet, sessionNoteSheet, renameWorkoutSheet, swapActiveWorkoutExercise, barWeightSheet, menuSheet, effortPickerSheet, exerciseHistorySheet, addRoutineToSessionSheet, finishWorkoutSheet, finishWorkoutNow, swapActiveWorkoutToBackup } from '../sheets.jsx'
 import { afterScrollRestore, scrollRestorePending } from '../components/Modals.jsx'
 import { effortColor } from '../lib/effort.js'
 import Elapsed from '../components/Elapsed.jsx'
@@ -109,54 +110,6 @@ function PreflightCard() {
   </div>
 }
 
-
-function VideoSyncSheet({ close }) {
-  const nav = useNavigate()
-  const paired = Boolean(readVideoSyncServer())
-  const offset = useUI(s => s.videoSync?.offset || 0)
-  const nudge = useUI(s => s.videoSync?.nudge)
-
-  return (
-    <div>
-      <h3>{t('Video sync')}</h3>
-      <div className="muted small" style={{ marginBottom: 16, lineHeight: 1.5 }}>
-        {paired
-          ? t('This workout syncs automatically with the openGym Chrome extension on your computer.')
-          : t('Pair once in Settings using the 4-character code shown in the openGym Chrome extension.')}
-      </div>
-      <div style={{ marginBottom: 16 }}>
-        <Button
-          variant={paired ? 'secondary' : 'primary'}
-          className="grow"
-          style={{ width: '100%' }}
-          onClick={() => {
-            close()
-            nav('/settings/video-sync')
-          }}
-        >
-          {paired ? t('Video sync settings') : t('Pair in Settings')}
-        </Button>
-      </div>
-      <div className="row" style={{ gap: 8, marginBottom: 16 }}>
-        <Button className="grow" onClick={close}>{t('Done')}</Button>
-      </div>
-      {typeof nudge === 'function' ? (
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-          <div className="small muted" style={{ marginBottom: 8 }}>
-            {t('Nudge video timeline')} ({offset > 0 ? '+' + offset + 's' : offset + 's'})
-          </div>
-          <div className="row" style={{ gap: 6 }}>
-            <button className="grow small" onClick={() => nudge(-5)}>-5s</button>
-            <button className="grow small" onClick={() => nudge(-1)}>-1s</button>
-            <button className="grow small" onClick={() => nudge(0)}>{t('Reset')}</button>
-            <button className="grow small" onClick={() => nudge(1)}>+1s</button>
-            <button className="grow small" onClick={() => nudge(5)}>+5s</button>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  )
-}
 
 function StartChooser() {
   const nav = useNavigate()
@@ -788,7 +741,7 @@ function ExerciseBlock({ entryIdx, compact, dense, editing, onToggle, onToggleSi
     {!dense && !thumb && <Media ex={ex} key={entry.id} compact={compact} minimizable />}
     <div className="row between exhd" style={{ marginBottom: 6 }}>
       {thumb && <WorkoutThumb ex={ex} onExpand={() => update(s => { s.gifSize = 'full' })} />}
-      <div style={{ flex: 1, minWidth: 0, fontSize: (compact || dense) ? 17 : 20, fontWeight: 600, letterSpacing: '-.02em', lineHeight: 1.2 }} className={exerciseNameClass(ex)}>{exerciseNameFor(ex)}</div>
+      <div style={{ flex: 1, minWidth: 0, fontSize: (compact || dense) ? 17 : 20, fontWeight: 600, letterSpacing: '-.02em', lineHeight: 1.2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }} className={exerciseNameClass(ex)}><span>{exerciseNameFor(ex)}</span><VideoPill entry={entry} isCurrent={S.active?.cur === entryIdx} /></div>
       <div className="row" style={{ gap: 2, flex: 'none' }}>
         {entry.note && <button className="iconbtn" aria-label={t('Note')} title={t('Note')} style={{ color: 'var(--acc)' }}
           onClick={() => exerciseNoteSheet(entryIdx)}><Icon name="note" /></button>}
@@ -1706,7 +1659,7 @@ function ActiveWorkout() {
     ui.resumeWork()
   }
   const openVideoSyncSheet = () => {
-    useUI.getState().openSheet(close => <VideoSyncSheet close={close} />)
+    videoSyncSheet()
   }
 
   // The header ⋯, in groups: the settings you change at the gym first (their own sheet, the same

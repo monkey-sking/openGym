@@ -614,6 +614,31 @@ h4.sec{
 /* One long word (a German custom name) wraps instead of pushing the star off the screen. */
 .exdetail-name{min-width:0;overflow-wrap:anywhere}
 .fav-btn.on{color:var(--yellow)}
+
+/* Micro video sync pill next to exercise titles (mobile first, glanceable) */
+.video-pill{
+  display:inline-flex;align-items:center;gap:4px;
+  background:var(--surface-2);color:var(--label-2);
+  border:1px solid var(--border);border-radius:99px;
+  padding:2px 8px;font-size:11px;font-weight:600;
+  font-variant-numeric:tabular-nums;line-height:1.2;
+  cursor:pointer;vertical-align:middle;
+  transition:all .15s ease;-webkit-user-select:none;user-select:none;
+}
+.video-pill:active{transform:scale(.95);opacity:.85}
+.video-pill-icon{font-size:9px;opacity:.85}
+.video-pill.active{
+  background:rgba(48,209,88,.14);
+  background:color-mix(in srgb, var(--green) 14%, transparent);
+  border-color:rgba(48,209,88,.35);
+  border-color:color-mix(in srgb, var(--green) 35%, transparent);
+  color:var(--green);
+}
+.video-pill-dot{
+  width:6px;height:6px;border-radius:50%;
+  background:var(--green);box-shadow:0 0 6px var(--green);
+  flex:none;
+}
 /* Exercise cards (S.exerciseView 'cards', ExerciseViewToggle): the Library, the picker and the
    muscle explorer as a grid of pictures with the name underneath — two across on a phone, more
    as the page or sheet widens. The id-prefixed selectors outrank the desktop rules further down

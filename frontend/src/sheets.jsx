@@ -38,6 +38,7 @@ import { parseImport, mergeImport } from './lib/import-csv.js'
 import { importHevyData, HevyApiError, HEVY_DEV_SETTINGS, mergeHevyRoutines, hevySummaryCounts } from './lib/import-hevy.js'
 import { buildPlanBundle, parsePlan, mergePlan, printPlan, planPrintHTML } from './lib/plan-share.js'
 import { readVideo, videoPlanBundle, clock, chapterLabel, VideoLinkError } from './lib/video-plan.js'
+import { readVideoSyncServer } from './lib/video-sync.js'
 import { printOptions } from './lib/print-doc.js'
 import { printWorkout } from './lib/report-print.js'
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP, formulaOf, FORMULA_NAMES } from './lib/onerm.js'
@@ -947,6 +948,55 @@ function BarWeightSheet({ exId, cfg, close }) {
   </>
 }
 export const barWeightSheet = (exId, cfg) => ui().openSheet(close => <BarWeightSheet exId={exId} cfg={cfg} close={close} />)
+
+function VideoSyncSheetContent({ close }) {
+  const paired = Boolean(readVideoSyncServer())
+  const offset = useUI(s => s.videoSync?.offset || 0)
+  const nudge = useUI(s => s.videoSync?.nudge)
+
+  return (
+    <div>
+      <h3>{t('Video sync')}</h3>
+      <div className="muted small" style={{ marginBottom: 16, lineHeight: 1.5 }}>
+        {paired
+          ? t('This workout syncs automatically with the openGym Chrome extension on your computer.')
+          : t('Pair once in Settings using the 4-character code shown in the openGym Chrome extension.')}
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        <Button
+          variant={paired ? 'secondary' : 'primary'}
+          className="grow"
+          style={{ width: '100%' }}
+          onClick={() => {
+            close()
+            nav('/settings/video-sync')
+          }}
+        >
+          {paired ? t('Video sync settings') : t('Pair in Settings')}
+        </Button>
+      </div>
+      <div className="row" style={{ gap: 8, marginBottom: 16 }}>
+        <Button className="grow" onClick={close}>{t('Done')}</Button>
+      </div>
+      {typeof nudge === 'function' ? (
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+          <div className="small muted" style={{ marginBottom: 8 }}>
+            {t('Nudge video timeline')} ({offset > 0 ? '+' + offset + 's' : offset + 's'})
+          </div>
+          <div className="row" style={{ gap: 6 }}>
+            <button className="grow small" onClick={() => nudge(-5)}>-5s</button>
+            <button className="grow small" onClick={() => nudge(-1)}>-1s</button>
+            <button className="grow small" onClick={() => nudge(0)}>{t('Reset')}</button>
+            <button className="grow small" onClick={() => nudge(1)}>+1s</button>
+            <button className="grow small" onClick={() => nudge(5)}>+5s</button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+export const videoSyncSheet = () => ui().openSheet(close => <VideoSyncSheetContent close={close} />)
+
 
 // The plates you own, as pairs per size, for the profile's unit (Settings → Equipment → Plates).
 // The first edit copies the standard set into S.plates[unit] and changes one count in it, so the

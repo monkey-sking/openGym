@@ -132,13 +132,12 @@ export default function Home() {
           An in-progress session still wins — that one is happening right now. Tapping the
           row keeps working, so a second session in one day is a tap away, just not urged. */}
       <div className="today-row" {...tappable(onToday)}>
-        <div className="row" style={{ gap: 9, minWidth: 0 }}>
+        <div className="row" style={{ gap: 9, minWidth: 0, alignItems: "center" }}>
           <span className="lrow-i" style={{ background: S.active ? 'var(--orange)' : doneToday ? 'var(--surface-3)' : routine ? 'var(--acc)' : 'var(--surface-3)' }}>
             <Icon name={S.active ? (editingSaved ? 'pencil' : 'play') : doneToday ? 'checkCircle' : routine ? glyphOf(routine.emoji) : 'moon'}
               style={doneToday && !S.active ? { color: 'var(--green)' } : undefined} />
           </span>
           <div style={{ minWidth: 0 }}>
-            <div className="lbl2">{t('Today')}</div>
             <div className="ttl">{S.active ? (editingSaved ? S.active.name : t('{0} (in progress)', S.active.name))
               : doneToday ? (doneToday.name ? t('{0} (done)', doneToday.name) : t('Workout done'))
               : routine ? todayName : t('Rest day')}{todayOvr && routine && !doneToday ? ' · ' + t('rescheduled') : ''}</div>
@@ -169,10 +168,9 @@ export default function Home() {
     {S.checkIn !== false && (
       <div className="card tappable" style={{ cursor: 'pointer' }} {...tappable(() => nav('/checkin'))}>
         <div className="row between">
-          <div className="row" style={{ gap: 9 }}>
+          <div className="row" style={{ gap: 9, alignItems: "center" }}>
             <span className="lrow-i" style={{ background: 'var(--blue)' }}><Icon name="qr" /></span>
             <div>
-              <div className="lbl2">{t('At the gym')}</div>
               <div className="ttl">{t('Check in')}</div>
             </div>
           </div>
