@@ -1528,6 +1528,20 @@ body.chips-dragging *{cursor:inherit}
 #timer .bar{position:absolute;top:0;inset-inline-start:0;inset-inline-end:0;height:3px;background:var(--surface-3)}
 #timer .bar i{display:block;height:100%;background:var(--acc);transform-origin:left center;transition:transform 1s linear;will-change:transform}
 [dir="rtl"] #timer .bar i{transform-origin:right center}
+#timer .fluid-tide{
+  position:absolute;inset:0;
+  background:rgba(52,199,89,0.06);
+  background:color-mix(in srgb,var(--acc) 7%,transparent);
+  transform-origin:left center;
+  transition:transform 1s linear;
+  pointer-events:none;
+  z-index:0;
+  will-change:transform;
+}
+[dir="rtl"] #timer .fluid-tide{transform-origin:right center}
+#timer .tclock,#timer .acts{position:relative;z-index:1}
+#timer.rest.paused .fluid-tide{opacity:.35}
+#timer.rest.ready .fluid-tide{opacity:0}
 /* The clock is what the bar is for, so it never gives up width: the buttons do (Skip is the one that
    gives: in a long language on a narrow phone it becomes an icon, RestTimer.jsx useSkipFits). The label under the
    clock fills the clock's width but does not widen it. */

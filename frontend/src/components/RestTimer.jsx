@@ -97,6 +97,7 @@ export default function RestTimer() {
   if (work) return (
     <div id="timer" className="working">
       <div className="bar" aria-hidden="true"><i style={{ transform: `scaleX(${pct / 100})` }} /></div>
+      <div className="fluid-tide" aria-hidden="true" style={{ transform: `scaleX(${pct / 100})` }} />
       <div className="tclock">
         <span className="t">{work.left <= 0 && work.overtime ? '+' + clock(-work.left) : clock(work.left)}</span>
         {work.label && <span className="lbl">{work.label}{work.paused ? ' · ' + t('Paused') : ''}</span>}
@@ -118,6 +119,7 @@ export default function RestTimer() {
   return (
     <div id="timer" className={'rest' + (timer.paused ? ' paused' : '') + (timer.kind === 'switch' ? ' switch' : '') + (timer.ready ? ' ready' : '')}>
       <div className="bar" aria-hidden="true"><i style={{ transform: `scaleX(${pct / 100})` }} /></div>
+      <div className="fluid-tide" aria-hidden="true" style={{ transform: `scaleX(${pct / 100})` }} />
       <SeasonDeco spot="rest-timer" workout />
       <button type="button" className="tclock" onClick={adjustRestSheet}
         aria-label={(timer.ready ? t('Ready') : clock(timer.left)) + '. ' + t('Change the time left')}>
