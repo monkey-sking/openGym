@@ -189,9 +189,9 @@ export async function startVideoSync ({ useStore, useUI, request = api, poll = V
   const posNow = active => videoSyncPos(active, currentWork())
 
   const resolveServer = () => {
+    if (MOBILE && request === api) return 'http://127.0.0.1:8787'
     const custom = readVideoSyncServer()
     if (custom) return custom.replace(/\/+$/, '')
-    if (MOBILE && request === api) return 'http://127.0.0.1:8787'
     return ''
   }
 
@@ -338,6 +338,13 @@ export async function startVideoSync ({ useStore, useUI, request = api, poll = V
         // A fresh workout starts the named video. A reload of an already-running one does not
         // touch playback: the initial call below and chapter retargets pass no play intent.
         startAtCurrentPosition(next, videoUrl, !isPaused(A))
+        try {
+          const isOnline = useUI.getState()?.videoSync?.online
+          if (isOnline) {
+            if (videoUrl) useUI.getState()?.toast?.(t('Video sync') + ' · ' + t('Connected'))
+            else useUI.getState()?.toast?.(t('Video sync') + ' · ' + t('No video'))
+          }
+        } catch { /* ignore toast errors in headless tests */ }
         schedule(0)
       } else {
         if (ended) endNow(ended, null)
