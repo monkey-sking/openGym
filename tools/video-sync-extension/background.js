@@ -569,8 +569,8 @@ async function pickTab (videoUrl) {
 
 const videoHost = url => {
   try {
-    const h = new URL(url).hostname
-    return /(^|\.)bilibili\.com$|(^|\.)youtube\.com$|(^|\.)vimeo\.com$/.test(h)
+    const h = new URL(url).hostname.toLowerCase()
+    return /(^|\.)bilibili\.com$|^b23\.tv$|(^|\.)youtube\.com$|^youtu\.be$|(^|\.)vimeo\.com$/.test(h)
   } catch { return false }
 }
 
@@ -625,6 +625,9 @@ async function command (cmd) {
       await status('connected', 'video sync: could not open the video tab')
       return { ok: false, reason: 'open-failed' }
     }
+    if (tab?.windowId) {
+      try { await chrome.windows.update(tab.windowId, { focused: true }) } catch {}
+    }
     // The page started by the site's own autoplay must not run ahead of the workout. Hold it
     // before the player mounts, so the content script pauses the first playable video; the mark
     // survives a worker restart until an explicit resume (or a play:true start) clears it.
@@ -638,7 +641,8 @@ async function command (cmd) {
     opened = true
   }
   if (!tabs.length) {
-    await status('connected', current.videoUrl ? 'video sync: that video tab is not open' : 'video sync: no video tab open')
+    const msg = current.videoUrl ? 'video sync: that video tab is not open' : 'video sync: workout has no video URL'
+    await status('connected', msg)
     return { ok: false, reason: 'no-tab' }
   }
   // A tab already bound to this workout wins, even when another tab shows the same video. Without

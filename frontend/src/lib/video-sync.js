@@ -16,6 +16,7 @@ import { EXIDX } from './exercises.js'
 import { linkKind, cleanUrl } from './media-refs.js'
 import { nativeFetch } from './capacitor-fetch.js'
 import { MOBILE, nativePlatform } from './mobile.js'
+import { t } from './i18n.js'
 
 // How often the app asks what the computer did. The stream carries the extension's side; this is
 // the app's, and a phone polling every 1.5 s costs one small GET — the workout screen already
@@ -190,6 +191,7 @@ export async function startVideoSync ({ useStore, useUI, request = api, poll = V
   const resolveServer = () => {
     const custom = readVideoSyncServer()
     if (custom) return custom.replace(/\/+$/, '')
+    if (MOBILE && request === api) return 'http://127.0.0.1:8787'
     return ''
   }
 
@@ -357,6 +359,13 @@ export async function startVideoSync ({ useStore, useUI, request = api, poll = V
       const offset = useUI.getState()?.videoSync?.offset || 0
       send('start', 'app', next, url, { pos, offset })
         .then(() => send('seek', 'app', next, url, { pos, offset, force: true }))
+      try {
+        const isOnline = useUI.getState()?.videoSync?.online
+        if (isOnline) {
+          if (url) useUI.getState()?.toast?.(t('Video sync') + ' · ' + t('Connected'))
+          else useUI.getState()?.toast?.(t('Video sync') + ' · ' + t('No video'))
+        }
+      } catch { /* ignore toast errors in headless tests */ }
     } else if (chapterChanged) {
       // Same video, next chapter: send seek with force: true to snap to its beginning.
       const pos = posNow(A)
