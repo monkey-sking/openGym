@@ -292,8 +292,6 @@ export default function VideoSyncSettingsPage() {
   const [healthInfo, setHealthInfo] = useState(null)
   const [failureReason, setFailureReason] = useState('')
   const [discoveredServer, setDiscoveredServer] = useState('')
-  const offset = useUI(s => s.videoSync?.offset || 0)
-  const nudge = useUI(s => s.videoSync?.nudge)
   const [pairCode, setPairCode] = useState('')
   const [pairingBusy, setPairingBusy] = useState(false)
   const [pairMsg, setPairMsg] = useState('')
@@ -502,20 +500,6 @@ export default function VideoSyncSettingsPage() {
           subtitle={phase === 'permission-denied' ? `${statusLabel}: ${statusDetail}` : statusLabel}
         />
       </Section>
-
-      {typeof nudge === 'function' ? (
-        <Section title={t('Timeline adjustment')}>
-          <div style={{ padding: '12px 16px' }}>
-            <div className="row" style={{ gap: 6 }}>
-              <button className="grow small" onClick={() => nudge(-5)}>-5s</button>
-              <button className="grow small" onClick={() => nudge(-1)}>-1s</button>
-              <button className="grow small" onClick={() => nudge(0)}>{t('Reset')}</button>
-              <button className="grow small" onClick={() => nudge(1)}>+1s</button>
-              <button className="grow small" onClick={() => nudge(5)}>+5s</button>
-            </div>
-          </div>
-        </Section>
-      ) : null}
 
       <PreWorkoutVideos />
     </>
