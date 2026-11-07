@@ -24,6 +24,8 @@ import WorkoutChips from '../components/WorkoutChips.jsx'
 import { supersetMeta } from '../lib/superset-meta.js'
 import WorkoutThumb, { hasWorkoutMedia } from '../components/WorkoutThumb.jsx'
 import VideoPill from '../components/VideoPill.jsx'
+import PlateBar from '../components/PlateBar.jsx'
+import { ghostValueOf, autoFillGhostSet } from '../lib/workout-ghost.js'
 import { workoutSettingsSheet } from '../components/WorkoutSettingsSheet.jsx'
 import { SessionMapButton } from '../components/SessionMuscles.jsx'
 import { durationSheet } from '../components/DurationWheel.jsx'
@@ -397,14 +399,21 @@ function ExerciseBlock({ entryIdx, compact, dense, editing, onToggle, onToggleSi
   // workout → Workout controls). The lean default keeps the sets and one "more" button; each
   // switch brings one of the old always-visible button rows back.
   const wc = workoutControls(S)
-  const cell = (s, i, col, cls) => (
-    <div className={'stp ' + cls + (wc.steppers ? '' : ' plain')}>
-      {wc.steppers && <button aria-label={t('Decrease')} onClick={() => bump(s, i, col, -1)}><Icon name="minus" /></button>}
-      <span className="val"><NumberField decimal={col.dec} nullable={col.opt} value={viewOf(col, s[col.f]) ?? ''}
-        onChange={v => onField(i, col.f, col.store ? col.store(v) : v)} /></span>
-      {wc.steppers && <button aria-label={t('Increase')} onClick={() => bump(s, i, col, 1)}><Icon name="plus" /></button>}
-    </div>
-  )
+  const cell = (s, i, col, cls) => {
+    const val = s[col.f]
+    const hasVal = val != null && val !== '' && (col.f === 'r' ? val > 0 : true)
+    const ghost = !hasVal ? ghostValueOf(entry, i, col.f, S) : null
+    const ghostText = ghost != null ? String(viewOf(col, ghost)) : ''
+    return (
+      <div className={'stp ' + cls + (wc.steppers ? '' : ' plain')}>
+        {wc.steppers && <button aria-label={t('Decrease')} onClick={() => bump(s, i, col, -1)}><Icon name="minus" /></button>}
+        <span className="val"><NumberField decimal={col.dec} nullable={col.opt} value={viewOf(col, s[col.f]) ?? ''}
+          placeholder={ghostText}
+          onChange={v => onField(i, col.f, col.store ? col.store(v) : v)} /></span>
+        {wc.steppers && <button aria-label={t('Increase')} onClick={() => bump(s, i, col, 1)}><Icon name="plus" /></button>}
+      </div>
+    )
+  }
   // Plate loading, per set row (lib/plates.js): which plates make THIS row's weight, from the
   // plates you own. 'pairs' splits what is beyond the bar per side, 'single' is one stack (a
   // belt, a sled), 'none' shows nothing. A unilateral row logs each side's own weight; a bar is
@@ -457,6 +466,7 @@ function ExerciseBlock({ entryIdx, compact, dense, editing, onToggle, onToggleSi
     const moves = d ? [...d.strip.map(w => '−' + fmtPlate(w)), ...d.add.map(w => '+' + fmtPlate(w))] : []
     return <div className="plateline">
       <Icon name="plate" />
+      {L.plates.length > 0 && <PlateBar plates={L.plates} unit={S.unit} />}
       <span>{text}{L.missing > 0 && <> · <span className="short">{t('{0} short', fmtPlate(L.missing) + ' ' + S.unit)}</span></>}</span>
       {moves.length > 0 && <span className="moves">{moves.join(' ')}</span>}
     </div>
@@ -617,14 +627,21 @@ function ExerciseBlock({ entryIdx, compact, dense, editing, onToggle, onToggleSi
     const step = col.f === 'r' ? 1 : col.step
     setSide(i, side, col.f, Math.max(0, Math.round(((cur || 0) + dir * step) * 100) / 100))
   }
-  const sideCell = (sd, i, side, col, cls) => (
-    <div className={'stp ' + cls + (wc.steppers ? '' : ' plain')}>
-      {wc.steppers && <button aria-label={t('Decrease')} onClick={() => sideBump(i, side, col, -1)}><Icon name="minus" /></button>}
-      <span className="val"><NumberField decimal={col.dec} value={sd[col.f] ?? ''}
-        onChange={v => setSide(i, side, col.f, v)} /></span>
-      {wc.steppers && <button aria-label={t('Increase')} onClick={() => sideBump(i, side, col, 1)}><Icon name="plus" /></button>}
-    </div>
-  )
+  const sideCell = (sd, i, side, col, cls) => {
+    const val = sd[col.f]
+    const hasVal = val != null && val !== '' && (col.f === 'r' ? val > 0 : true)
+    const ghost = !hasVal ? ghostValueOf(entry, i, col.f, S, side) : null
+    const ghostText = ghost != null ? String(val != null ? viewOf(col, val) : ghost) : ''
+    return (
+      <div className={'stp ' + cls + (wc.steppers ? '' : ' plain')}>
+        {wc.steppers && <button aria-label={t('Decrease')} onClick={() => sideBump(i, side, col, -1)}><Icon name="minus" /></button>}
+        <span className="val"><NumberField decimal={col.dec} value={sd[col.f] ?? ''}
+          placeholder={ghostText}
+          onChange={v => setSide(i, side, col.f, v)} /></span>
+        {wc.steppers && <button aria-label={t('Increase')} onClick={() => sideBump(i, side, col, 1)}><Icon name="plus" /></button>}
+      </div>
+    )
+  }
   const sideEffortCell = (sd, i, side, col) => {
     const v = sd[col.f] ?? null
     const rir = col.eff === 'rpe' ? (v == null ? null : 10 - v) : v
@@ -1887,6 +1904,12 @@ function ActiveWorkout() {
     let exJustDone = false, workoutDone = false, checked = false
     update(s => {
       const e = s.active.entries[idx]
+      if (!editing) {
+        const isCurrentlyDone = side ? Boolean(e.sets[i]?.sides?.[side]?.done) : Boolean(e.sets[i]?.done)
+        if (!isCurrentlyDone) {
+          autoFillGhostSet(e, i, side, s)
+        }
+      }
       // A per-side tick flips just that side; the row's own `done` (both sides) is then
       // recomputed by toggleSide, so every completion check below still reads a single boolean.
       if (side) e.sets[i] = toggleSide(e.sets[i], side)

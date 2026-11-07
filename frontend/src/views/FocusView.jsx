@@ -20,6 +20,8 @@ import { baseWeightFor, inventoryFor, loadKindFor, rowLoad } from '../lib/plates
 import { ownedWeightsFor, stepOwned } from '../lib/dumbbells.js'
 import Icon from '../components/Icon.jsx'
 import VideoPill from '../components/VideoPill.jsx'
+import PlateBar from '../components/PlateBar.jsx'
+import { ghostValueOf } from '../lib/workout-ghost.js'
 import { Button, Stepper } from '../components/ui.jsx'
 import './FocusView.css'
 
@@ -105,7 +107,7 @@ function PlateBadge({ S, entry, set }) {
   const stack = load.plates.map(fmtPlate).join(' + ')
   const text = load.barOnly ? t('Bar only')
     : load.kind === 'pairs' ? t('{0} per side', stack || '–') : t('Load {0}', stack || '–')
-  return <span className="focus-badge plate"><Icon name="plate" />{text}{load.missing > 0 && <> · <span className="short">{t('{0} short', fmtPlate(load.missing) + ' ' + S.unit)}</span></>}</span>
+  return <span className="focus-badge plate"><Icon name="plate" />{load.plates.length > 0 && <PlateBar plates={load.plates} unit={S.unit} />}{text}{load.missing > 0 && <> · <span className="short">{t('{0} short', fmtPlate(load.missing) + ' ' + S.unit)}</span></>}</span>
 }
 
 export default function FocusView({
@@ -179,9 +181,9 @@ export default function FocusView({
           onClick={() => onToggleSide(setIdx, side,
             !sideSet.done && (set.sides.L.done || set.sides.R.done) ? onProgress : undefined)}><Icon name="check" /></button>
       </div>
-      <Stepper label={t('Load ({0})', S.unit)} ariaLabel="load" value={sideSet.w || 0} step={loadStep} onStep={stepLoad} disabled={readOnly || sideSet.done}
+      <Stepper label={t('Load ({0})', S.unit)} ariaLabel="load" value={sideSet.w ?? ''} nullable={true} placeholder={ghostValueOf(entry, setIdx, 'w', S, side)} step={loadStep} onStep={stepLoad} disabled={readOnly || sideSet.done}
         onChange={value => change('w', value)} />
-      <Stepper label={t('Reps')} ariaLabel="reps" value={sideSet.r || 0} step={1} decimal={false} disabled={readOnly || sideSet.done}
+      <Stepper label={t('Reps')} ariaLabel="reps" value={sideSet.r ?? ''} nullable={true} placeholder={ghostValueOf(entry, setIdx, 'r', S, side)} step={1} decimal={false} disabled={readOnly || sideSet.done}
         onChange={value => change('r', value)} />
       <div className="focus-extras">
         {sideDrops.map((drop, index) => <div className="focus-extra" key={`drop-${index}`}>
@@ -312,13 +314,13 @@ export default function FocusView({
             {(inclineFits(ex) || entry.sets.some(hasIncline)) && <Stepper label={t('Incline (%)')} ariaLabel="incline" value={set.incline || 0} step={INCLINE_STEP} max={INCLINE_MAX} disabled={readOnly}
               onChange={value => onField(setIdx, 'incline', clampIncline(value))} />}
           </> : <>
-            <Stepper label={t('Load ({0})', S.unit)} ariaLabel="load" value={set.w || 0} step={loadStep} onStep={stepLoad} disabled={readOnly}
+            <Stepper label={t('Load ({0})', S.unit)} ariaLabel="load" value={set.w ?? ''} nullable={true} placeholder={ghostValueOf(entry, setIdx, 'w', S)} step={loadStep} onStep={stepLoad} disabled={readOnly}
               onChange={value => onField(setIdx, 'w', value)} />
           {mode === 'time' ? <div className="focus-timed">
             <strong>{t('{0}s hold', set.sec || entry.target?.sec || 45)}</strong>
             <Button icon="play" aria-label={t('Start set')} disabled={readOnly || busy}
               onClick={() => onStartTimed(setIdx, onProgress)}>{t('Start')}</Button>
-          </div> : <Stepper label={t('Reps')} ariaLabel="reps" value={set.r || 0} step={1} decimal={false} disabled={readOnly}
+          </div> : <Stepper label={t('Reps')} ariaLabel="reps" value={set.r ?? ''} nullable={true} placeholder={ghostValueOf(entry, setIdx, 'r', S)} step={1} decimal={false} disabled={readOnly}
             onChange={value => onField(setIdx, 'r', value)} />}</>}
         </>}
         <div className="focus-extras">

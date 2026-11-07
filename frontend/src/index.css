@@ -1420,6 +1420,18 @@ body.chips-dragging *{cursor:inherit}
 }
 /* Plate line under a set row (Workout.jsx loadLine): the stack for this row's weight, what is
    missing from the inventory, and what to strip/add from the row above. */
+/* Visual Plate Bar: miniature stacked barbell discs */
+.plate-bar{display:inline-flex;align-items:center;gap:1.5px;height:16px;margin-inline-end:2px;vertical-align:middle;flex:none}
+.plate-collar{width:2px;height:12px;background:var(--label-3);border-radius:1px;margin-inline-end:1px;opacity:.65;flex:none}
+.plate-disc{border-radius:1px;box-shadow:0 0 1px rgba(0,0,0,.35);flex:none}
+
+/* Ghost value placeholder for set rows and number fields */
+.stp .num::placeholder,.num::placeholder{
+  color:var(--label-3);
+  opacity:.5;
+  font-weight:500;
+  font-variant-numeric:tabular-nums;
+}
 .plateline{display:flex;align-items:center;gap:6px;padding-block:0 5px;padding-inline:32px 0;font-size:12px;color:var(--dim);line-height:1.3}
 .plateline .icn{font-size:12px;flex:none;opacity:.8}
 .plateline .short{color:var(--orange)}
