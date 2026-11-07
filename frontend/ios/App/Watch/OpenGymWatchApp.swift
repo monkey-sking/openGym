@@ -1210,20 +1210,20 @@ struct NextGearCue: View {
         HStack(spacing: 4) {
             if entry.isBodyweight {
                 if weight > 0 {
-                    Label(verbatim: "+\(formatNumber(weight)) \(unit)", systemImage: "scalemass.fill")
+                    Label { Text(verbatim: "+\(formatNumber(weight)) \(unit)") } icon: { Image(systemName: "scalemass.fill") }
                 } else {
                     Label("Bodyweight", systemImage: "figure.strengthtraining.traditional")
                 }
             } else if entry.isTimed {
-                Label(verbatim: "\(Int(sec))s", systemImage: "timer")
+                Label { Text(verbatim: "\(Int(sec))s") } icon: { Image(systemName: "timer") }
             } else if weight > 0 {
-                Label(verbatim: "\(formatNumber(weight)) \(unit)", systemImage: "dumbbell.fill")
+                Label { Text(verbatim: "\(formatNumber(weight)) \(unit)") } icon: { Image(systemName: "dumbbell.fill") }
                 if reps > 0 {
                     Text(verbatim: "× \(formatNumber(reps))")
                         .foregroundStyle(.secondary)
                 }
             } else if reps > 0 {
-                Label(verbatim: "\(formatNumber(reps)) reps", systemImage: "repeat")
+                Label { Text(verbatim: "\(formatNumber(reps)) reps") } icon: { Image(systemName: "repeat") }
             }
 
             if let sideUp = row?.sideUp {

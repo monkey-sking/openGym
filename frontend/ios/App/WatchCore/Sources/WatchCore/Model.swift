@@ -111,6 +111,7 @@ struct BestSet: Codable, Equatable {
 struct SideRow: Codable, Equatable {
     var w: Double?
     var r: Double?
+    var sec: Double?
     var done: Bool
 }
 
