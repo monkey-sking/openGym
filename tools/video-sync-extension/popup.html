@@ -3,29 +3,52 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>openGym video sync</title>
+  <title>openGym</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <h1>openGym video sync</h1>
-  <p class="lead">The workout and the follow-along video pause and resume together.</p>
+  <header class="header">
+    <div class="brand">openGym</div>
+    <div id="status-pill" class="status-pill status-warn">
+      <span class="dot"></span>
+      <span id="status-text">Searching</span>
+    </div>
+  </header>
 
-  <div class="pair-card">
-    <div class="pair-label">4-Digit Pairing Code</div>
-    <div id="pair-code" class="pair-code">----</div>
-    <button id="refresh-code" class="link-button">Refresh code</button>
-    <p class="pair-sub">Enter this code in openGym on your phone (Settings → Computer connection), on the same Wi-Fi.</p>
-  </div>
+  <!-- 手机实时训练状态 -->
+  <section id="phone-card" class="phone-card hidden">
+    <div class="phone-card-head">
+      <span id="phone-workout-name" class="workout-name"></span>
+      <span id="phone-step-pill" class="step-pill"></span>
+    </div>
+    <div id="phone-exercise-name" class="exercise-name"></div>
+    <div class="phone-card-footer">
+      <div id="phone-timer-pill" class="timer-pill work">
+        <span id="phone-timer-icon" class="timer-icon">▶</span>
+        <span id="phone-timer-text" class="timer-text">--:--</span>
+      </div>
+      <div id="phone-state-badge" class="state-badge">Active</div>
+    </div>
+  </section>
 
-  <p id="status" class="status">Not connected</p>
-  <p id="detail" class="detail"></p>
-  <p id="next" class="next"></p>
+  <!-- 已连接待机 -->
+  <section id="idle-card" class="idle-card hidden">
+    <div class="idle-icon">📱</div>
+    <div class="idle-title">Ready on phone</div>
+  </section>
+
+  <!-- 配对码卡片 -->
+  <section id="pair-card" class="pair-card">
+    <div class="pair-row">
+      <div id="pair-code" class="pair-code">----</div>
+      <button id="refresh-code" class="icon-button" title="Refresh code">↻</button>
+    </div>
+  </section>
 
   <details class="advanced">
-    <summary>Advanced / Connection Address</summary>
+    <summary>Address</summary>
     <div class="advanced-body">
-      <label for="server">Phone Address (optional)</label>
-      <input id="server" type="url" placeholder="found automatically on your Wi-Fi" autocomplete="off" spellcheck="false">
+      <input id="server" type="url" placeholder="Automatic Wi-Fi discovery" autocomplete="off" spellcheck="false">
       <div class="row">
         <button id="save" class="primary">Save</button>
         <button id="retry">Reconnect</button>

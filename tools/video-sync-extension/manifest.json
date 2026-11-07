@@ -9,10 +9,9 @@
     "*://*.bilibili.com/*",
     "*://*.youtube.com/*",
     "*://*.vimeo.com/*",
-    "http://*:8787/*",
-    "https://*:8787/*"
+    "http://*/*",
+    "https://*/*"
   ],
-  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "background.js",
     "type": "module"

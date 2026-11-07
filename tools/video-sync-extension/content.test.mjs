@@ -69,16 +69,16 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 
 test('leaves currentTime alone when the clocks are within the soft-sync threshold', async () => {
   const command = await loadVideo(100)
-  const result = await command({ action: 'seek', pos: 104.9, offset: 0, force: false })
+  const result = await command({ action: 'seek', pos: 101.4, offset: 0, force: false })
   assert.equal(result.seeked, false)
   assert.equal(document.querySelector('video').currentTime, 100)
 })
 
-test('snaps when the clocks differ by more than five seconds', async () => {
+test('snaps when the clocks differ by more than 1.5 seconds', async () => {
   const command = await loadVideo(100)
-  const result = await command({ action: 'seek', pos: 106, offset: 0, force: false })
+  const result = await command({ action: 'seek', pos: 102, offset: 0, force: false })
   assert.equal(result.seeked, true)
-  assert.equal(document.querySelector('video').currentTime, 106)
+  assert.equal(document.querySelector('video').currentTime, 102)
 })
 
 test('manual nudges and chapter boundaries can force an exact seek', async () => {

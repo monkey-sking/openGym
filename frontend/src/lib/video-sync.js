@@ -24,7 +24,7 @@ import { t } from './i18n.js'
 export const VIDEO_SYNC_POLL_MS = 1500
 // Ask the extension to compare clocks periodically. It only seeks beyond its 5 s
 // tolerance, so normal playback is left alone; this is a check, not a hard correction.
-export const VIDEO_SYNC_DRIFT_CHECK_MS = 5000
+export const VIDEO_SYNC_DRIFT_CHECK_MS = 1500
 
 // The sessions that have a clock to pause: a past workout logged after the fact and the editor of
 // a saved one both ride `S.active` without one.
@@ -188,6 +188,54 @@ export async function startVideoSync ({ useStore, useUI, request = api, poll = V
   const currentWork = () => useUI?.getState?.()?.work || null
   const posNow = active => videoSyncPos(active, currentWork())
 
+  const isTimedOrFollowAlong = entry => {
+    if (!entry) return false
+    const hasExplicitStart = typeof entry?.target?.vstart === "number" || typeof entry?.vstart === "number" || /(\d+):(\d{2})/.test(entry?.target?.note || entry?.note || "")
+    const isTimedMode = entry?.target?.mode === "time" || (Array.isArray(entry?.sets) && entry.sets.some(s => s.sec > 0))
+    return hasExplicitStart || isTimedMode
+  }
+
+  const shouldAutoplay = active => {
+    if (!active || isPaused(active)) return false
+    const entry = active.entries?.[active.cur]
+    if (isTimedOrFollowAlong(entry)) {
+      const wk = currentWork()
+      return !!(wk && !wk.paused)
+    }
+    return true
+  }
+
+  const getPhoneMeta = () => {
+    const active = useStore.getState().S.active
+    if (!active) return { inWorkout: false }
+    const entry = active.entries?.[active.cur]
+    const exId = entry?.id
+    const exName = (EXIDX[exId]?.n) || entry?.name || exId || ""
+    const wk = currentWork()
+    const tm = useUI.getState()?.timer
+    let state = "ready"
+    let left = null
+    if (isPaused(active)) {
+      state = "paused"
+    } else if (wk && !wk.paused) {
+      state = "timing"
+      left = Math.max(0, Math.round(wk.left))
+    } else if (wk && wk.paused) {
+      state = "paused"
+      left = Math.max(0, Math.round(wk.left))
+    } else if (tm && !tm.paused && !tm.ready) {
+      state = "rest"
+      left = Math.max(0, Math.round(tm.left))
+    }
+    return {
+      inWorkout: true,
+      workoutTitle: active.name || "",
+      exerciseTitle: exName,
+      workoutState: state,
+      timeLeft: left
+    }
+  }
+
   const resolveServer = () => {
     if (MOBILE && request === api) return 'http://127.0.0.1:8787'
     const custom = readVideoSyncServer()
@@ -276,13 +324,17 @@ export async function startVideoSync ({ useStore, useUI, request = api, poll = V
   const checkDrift = force => {
     const A = useStore.getState().S.active
     if (!sessionId || !videoUrl || !A || A.id !== sessionId || isPaused(A)) return
+    const entry = A?.entries?.[A?.cur]
+    if (!force && isTimedOrFollowAlong(entry)) {
+      const wk = currentWork()
+      if (!wk || wk.paused) return
+    }
     const now = Date.now()
     if (!force && now - lastDriftCheckAt < VIDEO_SYNC_DRIFT_CHECK_MS) return
     lastDriftCheckAt = now
     const pos = posNow(A)
     const offset = useUI.getState()?.videoSync?.offset || 0
-    // force:false lets content.js keep the 5 s tolerance; it only snaps beyond that.
-    send('seek', 'app', sessionId, videoUrl, { pos, offset, force: false })
+    send('seek', 'app', sessionId, videoUrl, { pos, offset, force: false, phoneMeta: getPhoneMeta() })
   }
 
   const startAtCurrentPosition = (id, url, play = null) => {
@@ -337,7 +389,7 @@ export async function startVideoSync ({ useStore, useUI, request = api, poll = V
         endedSession = null
         // A fresh workout starts the named video. A reload of an already-running one does not
         // touch playback: the initial call below and chapter retargets pass no play intent.
-        startAtCurrentPosition(next, videoUrl, !isPaused(A))
+        startAtCurrentPosition(next, videoUrl, shouldAutoplay(A))
         try {
           const isOnline = useUI.getState()?.videoSync?.online
           if (isOnline) {
@@ -394,6 +446,32 @@ export async function startVideoSync ({ useStore, useUI, request = api, poll = V
     }
   }
 
+  const onUIChange = (ui, prevUI) => {
+    if (stopped || !sessionId || !videoUrl || applying) return
+    const A = useStore.getState().S.active
+    if (!A || A.id !== sessionId || isPaused(A)) return
+    const entry = A.entries?.[A.cur]
+    if (!isTimedOrFollowAlong(entry)) return
+
+    const wk = ui?.work || null
+    const prevWk = prevUI?.work || null
+    const wasRunning = !!(prevWk && !prevWk.paused)
+    const isRunning = !!(wk && !wk.paused)
+
+    if (wasRunning === isRunning) return
+
+    const pos = posNow(A)
+    const offset = ui?.videoSync?.offset || 0
+
+    if (!wasRunning && isRunning) {
+      send('resume', 'app', sessionId, videoUrl, { pos, offset, force: true, phoneMeta: getPhoneMeta() })
+      lastDriftCheckAt = Date.now()
+    } else if (wasRunning && !isRunning) {
+      send('pause', 'app', sessionId, videoUrl, { pos, offset, phoneMeta: getPhoneMeta() })
+    }
+  }
+  const offUI = typeof useUI?.subscribe === "function" ? useUI.subscribe(onUIChange) : null
+
   const off = useStore.subscribe(onChange)
   // Coming back to the app is the moment a pause made on the computer is likely waiting.
   const onVisible = () => { if (!stopped && sessionId && document.visibilityState === 'visible') tick() }
@@ -433,7 +511,7 @@ export async function startVideoSync ({ useStore, useUI, request = api, poll = V
     stopped = true
     clearTimeout(timer)
     timer = null
-    off?.()
+    off?.(); offUI?.()
     try { document.removeEventListener('visibilitychange', onVisible) } catch { /* see above */ }
   }
 }

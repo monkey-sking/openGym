@@ -500,6 +500,10 @@ function dispatch (state) {
   if (!state || typeof state !== 'object') return
   current = { ...current, ...state }
   chrome.storage.session.set({ [SESSION_KEY]: current }).catch(() => {})
+  if ('phoneMeta' in state || state.action === 'end' || state.sessionId) {
+    const meta = state.action === 'end' ? null : (state.phoneMeta || current.phoneMeta || null)
+    chrome.storage.local.set({ phoneMeta: meta }).catch(() => {})
+  }
 }
 
 // The video's key is the part that names the video, not the whole URL: the app's link and the tab

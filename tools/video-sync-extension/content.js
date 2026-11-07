@@ -16,7 +16,7 @@
   // paused at the first playable video, and stays paused until an explicit resume arrives.
   let held = false
   let holdKnown = false
-  const SOFT_SYNC_THRESHOLD_SEC = 5.0
+  const SOFT_SYNC_THRESHOLD_SEC = 1.5
 
   const videos = () => [...document.querySelectorAll('video')]
 
@@ -129,9 +129,14 @@
       const offset = Number(cmd?.offset) || 0
       const target = Math.max(0, Math.min(v.duration || Infinity, pos + offset))
       const diff = Math.abs(v.currentTime - target)
-      // Only seek if difference exceeds threshold (default 5s) or explicitly forced (chapter boundary)
-      if (!cmd?.force && diff < SOFT_SYNC_THRESHOLD_SEC) {
-        return { ok: true, action: 'seek', seeked: false, diff, currentTime: v.currentTime }
+      // Only seek if explicitly forced (chapter boundary/nudge) or difference exceeds threshold (default 5s)
+      if (!cmd?.force) {
+        if (!v.paused && v.currentTime >= target) {
+          return { ok: true, action: 'seek', seeked: false, diff, currentTime: v.currentTime }
+        }
+        if (diff < SOFT_SYNC_THRESHOLD_SEC) {
+          return { ok: true, action: 'seek', seeked: false, diff, currentTime: v.currentTime }
+        }
       }
       suppressUntil = Date.now() + 1500
       v.currentTime = target

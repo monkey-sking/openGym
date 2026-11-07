@@ -81,7 +81,7 @@ export function createRelay({ now = Date.now, phoneAppStaleMs = PHONE_APP_STALE_
 
   function handleCommand(body) {
     if (!body || typeof body !== 'object') return state
-    const { action, source, sessionId, videoUrl, pos, offset, force } = body
+    const { action, source, sessionId, videoUrl, pos, offset, force, phoneMeta } = body
     if (source === 'app') markAppSeen()
     const nextSeq = state.seq + 1
     // Online is an observation, not a promise: only the extension holding the stream makes it
@@ -104,6 +104,7 @@ export function createRelay({ now = Date.now, phoneAppStaleMs = PHONE_APP_STALE_
       // A fresh start plays (true), an attach leaves playback alone (null), an explicit paused
       // start holds it paused (false). Only start carries an intent.
       play: action === 'start' && typeof body.play === 'boolean' ? body.play : null,
+      phoneMeta: action === 'end' ? null : (phoneMeta || state.phoneMeta || null),
       online: isOnline,
       at: Date.now()
     }

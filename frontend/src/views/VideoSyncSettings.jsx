@@ -467,10 +467,7 @@ export default function VideoSyncSettingsPage() {
 
   return (
     <>
-      <Section
-        title={t('Pair with Chrome')}
-        footer={t('Open the openGym extension in Chrome on your computer, find the 4-character code in its popup, and enter it here.')}
-      >
+      <Section title={t('Pair with Chrome')}>
         <div style={{ padding: '12px 16px' }}>
           <div className="row" style={{ gap: 8, alignItems: 'center' }}>
             <TextField
@@ -497,43 +494,18 @@ export default function VideoSyncSettingsPage() {
         </div>
       </Section>
 
-      <Section
-        title={t('Video sync')}
-        footer={t('Connect your computer Chrome browser on the same Wi-Fi network without any server account.')}
-      >
+      <Section title={t('Video sync')}>
         <Row
           icon="tv"
           iconTint={statusTone}
           title={t('Computer connection')}
-          subtitle={statusLabel}
-        />
-        <Row
-          title={t('What this means')}
-          subtitle={statusDetail}
+          subtitle={phase === 'permission-denied' ? `${statusLabel}: ${statusDetail}` : statusLabel}
         />
       </Section>
 
-      {phase !== 'connected' ? (
-        <Section
-          title={t('Automatic recovery')}
-          footer={t('The app keeps checking the connection and reconnects automatically.')}
-        >
-          <div className="small muted" style={{ padding: '12px 16px', lineHeight: 1.5 }}>
-            <div>{t('Keep the openGym Chrome extension enabled on your computer.')}</div>
-            <div>{t('Keep both devices on the same Wi-Fi and allow Local Network access for openGym.')}</div>
-          </div>
-        </Section>
-      ) : null}
-
       {typeof nudge === 'function' ? (
-        <Section
-          title={t('Timeline adjustment')}
-          footer={t('Adjusts the video timeline when it drifts slightly ahead or behind.')}
-        >
+        <Section title={t('Timeline adjustment')}>
           <div style={{ padding: '12px 16px' }}>
-            <div className="small muted" style={{ marginBottom: 8 }}>
-              {t('Nudge video timeline')} ({offset > 0 ? '+' + offset + 's' : offset + 's'})
-            </div>
             <div className="row" style={{ gap: 6 }}>
               <button className="grow small" onClick={() => nudge(-5)}>-5s</button>
               <button className="grow small" onClick={() => nudge(-1)}>-1s</button>

@@ -131,6 +131,11 @@ struct RootView: View {
                 store.show(entry: store.workout?.entries.count ?? 0)
             }
         }
+        .overlay(alignment: .top) {
+            if store.workout != nil {
+                HeartRateGlow(health: store.health)
+            }
+        }
         // Any touch: the rest-over alarm was noticed (it would tap once more otherwise).
         .simultaneousGesture(TapGesture().onEnded { store.ackRestOver() })
         // The complication's Start: today's workout, when none runs yet.
@@ -297,14 +302,16 @@ struct CountdownView: View {
 
     var body: some View {
         VStack(spacing: 2) {
-            TimelineView(.periodic(from: from, by: 1)) { ctx in
+            TimelineView(.periodic(from: from, by: 0.25)) { ctx in
                 let n = max(1, Countdown.number(at: ctx.date.timeIntervalSince(from)))
+                let frac = ctx.date.timeIntervalSince(from).truncatingRemainder(dividingBy: 1.0)
                 Button { store.startNow() } label: {
                     ZStack {
                         CountdownRing(start: from, end: from.addingTimeInterval(Double(Countdown.seconds)))
                         Text(verbatim: "\(n)")
-                            .font(.system(size: 64, weight: .bold, design: .rounded).monospacedDigit())
+                            .font(.system(size: 54, weight: .heavy, design: .rounded).monospacedDigit())
                             .foregroundStyle(Theme.accent)
+                            .scaleEffect(1.0 + CGFloat(1.0 - frac) * 0.10)
                     }
                     .aspectRatio(1, contentMode: .fit)
                     .contentShape(Circle())
@@ -568,17 +575,15 @@ struct ExercisePage: View {
             if store.show.showClip, let clip = store.clips[entry.id] {
                 ClipView(clip: clip, animating: selected).frame(width: 30, height: 30)
             }
-            VStack(alignment: .leading, spacing: 1) {
-                if status == .current {
-                    CurrentBadge()
-                } else if status == .done {
+            VStack(alignment: .leading, spacing: 2) {
+                if status == .done {
                     DoneBadge()
                 }
                 Text(entry.name)
-                    .font(.system(.footnote, design: .rounded).weight(status == .current ? .bold : .semibold))
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
                     // One line at the large sizes (shrunk to fit): two would push the page up into the clock.
                     .lineLimit(typeSize.isAccessibilitySize ? 1 : 2)
-                    .minimumScaleFactor(typeSize.isAccessibilitySize ? 0.6 : 0.8)
+                    .minimumScaleFactor(typeSize.isAccessibilitySize ? 0.6 : 0.75)
                     .fixedSize(horizontal: false, vertical: true)
                 WorkoutExtras()
             }
@@ -1113,53 +1118,213 @@ struct CountdownText: View {
     }
 }
 
+/// An exercise timer that dynamically shifts visual focus based on user needs:
+/// 1. Intro (first 3s): Huge exercise name (22pt bold) centered to confirm what to do, compact timer pill.
+/// 2. Steady phase: Exercise name docked neatly at top (15pt), countdown centered and calm (32pt).
+/// 3. Urgency (final 5s): Exercise name fades away, countdown explodes (52pt heavy monospaced) with a dynamic pulse.
+struct DynamicExerciseTimer: View {
+    let name: String
+    let start: Date
+    let end: Date
+    var ringColor: Color = .cyan
+    @Environment(\.isLuminanceReduced) private var dimmed
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: dimmed ? 1 : 0.25)) { ctx in
+            let now = ctx.date
+            let remaining = max(0, end.timeIntervalSince(now))
+            let elapsed = max(0, now.timeIntervalSince(start))
+
+            let isIntro = !dimmed && elapsed < 3.0 && remaining > 5.0
+            let isUrgent = !dimmed && remaining <= 5.0 && remaining > 0
+
+            ZStack {
+                CountdownRing(start: start, end: end, color: isUrgent ? .orange : ringColor)
+
+                if isIntro {
+                    VStack(spacing: 5) {
+                        Text(name)
+                            .font(.system(size: 22, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.7)
+                            .padding(.horizontal, 10)
+
+                        HStack(spacing: 4) {
+                            Image(systemName: "timer")
+                                .font(.system(size: 11, weight: .semibold))
+                            CountdownText(end: end, font: .system(size: 14, weight: .semibold, design: .rounded).monospacedDigit())
+                        }
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Theme.dim))
+                    }
+                } else if isUrgent {
+                    let sec = max(1, Int(ceil(remaining)))
+                    let frac = remaining.truncatingRemainder(dividingBy: 1.0)
+                    VStack(spacing: 0) {
+                        Text(verbatim: "\(sec)")
+                            .font(.system(size: 52, weight: .heavy, design: .rounded).monospacedDigit())
+                            .foregroundStyle(.orange)
+                            .scaleEffect(1.0 + CGFloat(frac) * 0.10)
+                            .shadow(color: .orange.opacity(0.35), radius: 8)
+                    }
+                } else {
+                    VStack(spacing: 3) {
+                        Text(name)
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .padding(.horizontal, 14)
+
+                        CountdownText(
+                            end: end,
+                            font: .system(size: 32, weight: .bold, design: .rounded).monospacedDigit()
+                        )
+                        .foregroundStyle(.white)
+                    }
+                }
+            }
+            .aspectRatio(1, contentMode: .fit)
+            .padding(.horizontal, 6)
+        }
+    }
+}
+
+struct NextGearCue: View {
+    let entry: Entry
+    let setIndex: Int?
+    let unit: String
+
+    var body: some View {
+        let si = setIndex ?? 0
+        let row = entry.sets.indices.contains(si) ? entry.sets[si] : entry.sets.first
+        let side = row?.sideUp.flatMap { row?.sides?[$0] }
+        let weight = side?.w ?? row?.w ?? 0
+        let reps = side?.r ?? row?.r ?? 0
+        let sec = side?.sec ?? row?.sec ?? 0
+
+        HStack(spacing: 4) {
+            if entry.isBodyweight {
+                if weight > 0 {
+                    Label(verbatim: "+\(formatNumber(weight)) \(unit)", systemImage: "scalemass.fill")
+                } else {
+                    Label("Bodyweight", systemImage: "figure.strengthtraining.traditional")
+                }
+            } else if entry.isTimed {
+                Label(verbatim: "\(Int(sec))s", systemImage: "timer")
+            } else if weight > 0 {
+                Label(verbatim: "\(formatNumber(weight)) \(unit)", systemImage: "dumbbell.fill")
+                if reps > 0 {
+                    Text(verbatim: "× \(formatNumber(reps))")
+                        .foregroundStyle(.secondary)
+                }
+            } else if reps > 0 {
+                Label(verbatim: "\(formatNumber(reps)) reps", systemImage: "repeat")
+            }
+
+            if let sideUp = row?.sideUp {
+                Text(sideUp == "L" ? "Left" : "Right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.cyan)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(Color.cyan.opacity(0.2)))
+            }
+        }
+        .font(.system(size: 11, weight: .semibold, design: .rounded))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(Theme.dim))
+    }
+}
+
 struct RestView: View {
     @EnvironmentObject var store: SessionStore
     let end: Date
     @Environment(\.isLuminanceReduced) private var dimmed
-    @ScaledMetric(relativeTo: .largeTitle) private var countdownSize: CGFloat = 42
+    @ScaledMetric(relativeTo: .largeTitle) private var countdownSize: CGFloat = 34
+    @State private var didPlayGearCue = false
 
     var body: some View {
-        // The ring and the countdown in it take the space above the two corner buttons, so nothing
-        // overlaps on any size (it did on 46 mm when the ring filled the whole screen).
+        let start = store.restStartedAt ?? end.addingTimeInterval(-90)
+        let unit = store.workout?.unit ?? "kg"
         VStack(spacing: 2) {
-            ZStack {
-                if store.show.restRing {
-                    CountdownRing(start: store.restStartedAt ?? end.addingTimeInterval(-90), end: end)
-                }
-                VStack(spacing: 1) {
-                    Text("Rest").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                    CountdownText(
-                        end: end,
-                        font: .system(size: store.show.restRing ? countdownSize : countdownSize * 1.35,
-                                      weight: .semibold, design: .rounded).monospacedDigit()
-                    )
-                    if store.show.showNext, let e = store.entry, let si = store.setIndex {
-                        Group {
-                            if let side = store.sideUp {
-                                Text("Next: \(e.name), set \(si + 1)") + Text(verbatim: " · ") + Text(side == "L" ? LocalizedStringKey("Left") : LocalizedStringKey("Right"))
-                            } else {
-                                Text("Next: \(e.name), set \(si + 1)")
+            TimelineView(.periodic(from: .now, by: dimmed ? 1 : 0.25)) { ctx in
+                let now = ctx.date
+                let remaining = max(0, end.timeIntervalSince(now))
+                let isUrgent = !dimmed && remaining <= 5.0 && remaining > 0
+                let isGearPrep = !dimmed && remaining <= 10.0 && remaining > 0
+
+                ZStack {
+                    if store.show.restRing {
+                        CountdownRing(start: start, end: end, color: isUrgent ? Theme.accent : Theme.accent.opacity(0.85))
+                    }
+                    VStack(spacing: 4) {
+                        if isUrgent {
+                            let sec = max(1, Int(ceil(remaining)))
+                            let frac = remaining.truncatingRemainder(dividingBy: 1.0)
+                            Text(verbatim: "\(sec)")
+                                .font(.system(size: 46, weight: .heavy, design: .rounded).monospacedDigit())
+                                .foregroundStyle(Theme.accent)
+                                .scaleEffect(1.0 + CGFloat(frac) * 0.08)
+
+                            if store.show.showNext, let e = store.entry {
+                                Text(e.name)
+                                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.75)
+
+                                NextGearCue(entry: e, setIndex: store.setIndex, unit: unit)
+                            }
+                        } else {
+                            CountdownText(
+                                end: end,
+                                font: .system(size: countdownSize, weight: .bold, design: .rounded).monospacedDigit()
+                            )
+                            .foregroundStyle(.white)
+
+                            if store.show.showNext, let e = store.entry {
+                                if isGearPrep {
+                                    VStack(spacing: 3) {
+                                        Text(e.name)
+                                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                                            .foregroundStyle(.white)
+                                            .lineLimit(1)
+                                            .minimumScaleFactor(0.75)
+
+                                        NextGearCue(entry: e, setIndex: store.setIndex, unit: unit)
+                                    }
+                                } else {
+                                    Text(e.name)
+                                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.75)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 2)
+                                        .background(Capsule().fill(Theme.dim.opacity(0.6)))
+                                }
                             }
                         }
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.7)
-                        .multilineTextAlignment(.center)
                     }
-                    if store.offline {
-                        Text("Saved on the watch, syncs later")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.6)
+                    .padding(.horizontal, 16)
+                }
+                .aspectRatio(1, contentMode: .fit)
+                .padding(.horizontal, 6)
+                .onChange(of: isGearPrep) { prep in
+                    if prep && !didPlayGearCue {
+                        didPlayGearCue = true
+                        Haptics.gearCue()
                     }
                 }
-                .padding(.horizontal, 18)
             }
-            .aspectRatio(1, contentMode: .fit)
-            .padding(.horizontal, 6)
+
             // Always On: the countdown stays, the buttons go (nothing to tap with the wrist down).
             HStack {
                 EdgeButton(systemImage: "goforward.15", label: Text("+15s")) { store.addRest(15) }
@@ -1212,11 +1377,11 @@ struct PausedView: View {
             .padding(.vertical, 3)
             .background(Capsule().fill(Color.secondary.opacity(0.15)))
             if let e = store.entry, let si = store.setIndex {
-                Text("\(e.name), set \(si + 1)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                Text(e.name)
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
                     .lineLimit(2)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(0.75)
                     .multilineTextAlignment(.center)
             }
             if let timer {
@@ -1273,41 +1438,19 @@ struct PhoneWorkView: View {
     @EnvironmentObject var store: SessionStore
     let end: Date
     @Environment(\.isLuminanceReduced) private var dimmed
-    @ScaledMetric(relativeTo: .largeTitle) private var countdownSize: CGFloat = 42
 
     var body: some View {
+        let name = store.phoneWorkLabel ?? store.entry?.name ?? ""
+        let start = store.phoneWorkStartedAt ?? end.addingTimeInterval(-30)
         VStack(spacing: 2) {
-            ZStack {
-                if let start = store.phoneWorkStartedAt {
-                    CountdownRing(start: start, end: end, color: .cyan)
-                } else {
-                    Circle().stroke(Theme.dim, lineWidth: 7)
-                }
-                VStack(spacing: 1) {
-                    Text(store.phoneWorkLabel ?? store.entry?.name ?? "")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    CountdownText(
-                        end: end,
-                        font: .system(size: countdownSize, weight: .semibold, design: .rounded).monospacedDigit()
-                    )
-                    Text("Set timer")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 18)
-            }
-            .aspectRatio(1, contentMode: .fit)
-            .padding(.horizontal, 6)
+            DynamicExerciseTimer(name: name, start: start, end: end, ringColor: .cyan)
+
             HStack {
                 LockButton(health: store.health)
                 Spacer()
-                Label("From iPhone", systemImage: "iphone")
-                    .font(.system(size: 10, weight: .medium))
+                Image(systemName: "iphone")
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .labelStyle(.titleAndIcon)
             }
             .opacity(dimmed ? 0 : 1)
         }
@@ -1331,24 +1474,13 @@ struct HoldView: View {
     @EnvironmentObject var store: SessionStore
     let end: Date
     @Environment(\.isLuminanceReduced) private var dimmed
-    @ScaledMetric(relativeTo: .largeTitle) private var countdownSize: CGFloat = 42
 
     var body: some View {
+        let name = store.entry?.name ?? ""
+        let start = store.holdStartedAt ?? end
         VStack(spacing: 2) {
-            ZStack {
-                CountdownRing(start: store.holdStartedAt ?? end, end: end, color: .cyan)
-                VStack(spacing: 1) {
-                    Text(store.entry?.name ?? "").font(.caption2.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
-                    CountdownText(
-                        end: end,
-                        font: .system(size: countdownSize, weight: .semibold, design: .rounded).monospacedDigit()
-                    )
-                    Text("Hold").font(.caption2).foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 18)
-            }
-            .aspectRatio(1, contentMode: .fit)
-            .padding(.horizontal, 6)
+            DynamicExerciseTimer(name: name, start: start, end: end, ringColor: .cyan)
+
             HStack {
                 LockButton(health: store.health)
                 Spacer()
@@ -1484,24 +1616,80 @@ struct ClipView: View {
 
 /* ---------- Apple Health ---------- */
 
-/// "♥ 128" while the workout session measures it; nothing otherwise.
+enum HeartRateZone {
+    case warmUp   // Zone 1-2: < 120 bpm (cool blue)
+    case aerobic  // Zone 3: 120-144 bpm (active green)
+    case cardio   // Zone 4: 145-164 bpm (warning orange)
+    case peak     // Zone 5: >= 165 bpm (alert red)
+
+    var color: Color {
+        switch self {
+        case .warmUp: return .cyan
+        case .aerobic: return Theme.accent
+        case .cardio: return .orange
+        case .peak: return .red
+        }
+    }
+}
+
+func heartRateZone(_ hr: Double?) -> HeartRateZone? {
+    guard let hr = hr, hr >= 45 else { return nil }
+    if hr < 120 { return .warmUp }
+    if hr < 145 { return .aerobic }
+    if hr < 165 { return .cardio }
+    return .peak
+}
+
+/// A subtle ambient glow at the top edge reflecting current heart rate zone.
+struct HeartRateGlow: View {
+    @ObservedObject var health: WorkoutManager
+    @Environment(\.isLuminanceReduced) private var dimmed
+
+    var body: some View {
+        if !dimmed, let zone = heartRateZone(health.heartRate) {
+            VStack {
+                Rectangle()
+                    .fill(
+                        LinearGradient(
+                            colors: [zone.color.opacity(0.42), zone.color.opacity(0.0)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(height: 16)
+                    .blur(radius: 6)
+                    .ignoresSafeArea(edges: .top)
+                Spacer()
+            }
+            .allowsHitTesting(false)
+            .animation(.easeInOut(duration: 0.8), value: zone.color)
+        }
+    }
+}
+
+/// Heart rate badge tinted with current heart rate zone color.
 struct HeartRateBadge: View {
     @ObservedObject var health: WorkoutManager
 
     var body: some View {
         if let hr = health.heartRate {
-            HStack(spacing: 2) {
+            let zone = heartRateZone(hr) ?? .warmUp
+            HStack(spacing: 3) {
                 Image(systemName: "heart.fill").font(.system(size: 9))
-                Text(verbatim: "\(Int(hr.rounded()))").font(.caption2.monospacedDigit())
+                Text(verbatim: "\(Int(hr.rounded()))")
+                    .font(.system(size: 11, weight: .bold, design: .rounded).monospacedDigit())
             }
-            .foregroundStyle(.red)
+            .foregroundStyle(zone.color)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1.5)
+            .background(Capsule().fill(zone.color.opacity(0.18)))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text("Heart rate"))
             .accessibilityValue(Text(verbatim: "\(Int(hr.rounded()))"))
         } else if health.measuring {
             HStack(spacing: 2) {
                 Image(systemName: "heart").font(.system(size: 9))
-                Text("measuring").font(.caption2)
+                Text("...").font(.caption2)
             }
             .foregroundStyle(.secondary)
         }

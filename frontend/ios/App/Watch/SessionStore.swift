@@ -1294,6 +1294,7 @@ enum Haptics {
     }
     static func done() { play([(0, .success)]) }
     static func side() { play([(0, .click)]) }
+    static func gearCue() { play([(0, .directionUp)]) }
     static func restOver() { play([(0, .notification), (0.45, .notification), (0.9, .directionUp)]) }
     static func start() { play([(0, .start)]) }
     static func finished() { play([(0, .stop), (0.5, .success), (0.9, .success)]) }

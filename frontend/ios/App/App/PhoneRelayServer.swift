@@ -61,7 +61,7 @@ func phoneRelayLanIPv4Addresses() -> [String] {
     guard getifaddrs(&pointer) == 0, let first = pointer else { return [] }
     defer { freeifaddrs(pointer) }
 
-    var addresses = Set<String>()
+    var candidates: [(ip: String, ifName: String, priority: Int)] = []
     var cursor: UnsafeMutablePointer<ifaddrs>? = first
     while let interface = cursor {
         defer { cursor = interface.pointee.ifa_next }
@@ -69,6 +69,12 @@ func phoneRelayLanIPv4Addresses() -> [String] {
               address.pointee.sa_family == UInt8(AF_INET) else { continue }
         let flags = Int32(interface.pointee.ifa_flags)
         guard flags & IFF_UP != 0, flags & IFF_LOOPBACK == 0 else { continue }
+
+        let ifName = String(cString: interface.pointee.ifa_name)
+        // Skip VPN and tunnel virtual interfaces (utun*, ipsec*, ppp*)
+        if ifName.hasPrefix("utun") || ifName.hasPrefix("ipsec") || ifName.hasPrefix("ppp") {
+            continue
+        }
 
         var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
         let result = getnameinfo(
@@ -81,10 +87,38 @@ func phoneRelayLanIPv4Addresses() -> [String] {
             NI_NUMERICHOST
         )
         if result == 0 {
-            addresses.insert(String(cString: host))
+            let ip = String(cString: host)
+            // Filter CGNAT/tunnel proxies (e.g. 198.19.x.x)
+            if ip.hasPrefix("198.19.") { continue }
+
+            var priority = 100
+            if ifName == "en0" {
+                priority = 10
+            } else if ip.hasPrefix("192.168.") {
+                priority = 20
+            } else if ip.hasPrefix("172.20.10.") {
+                // iPhone Personal Hotspot
+                priority = 30
+            } else if ip.hasPrefix("10.") {
+                priority = 40
+            }
+            candidates.append((ip, ifName, priority))
         }
     }
-    return addresses.sorted()
+    // Sort by priority ascending, then IP string
+    candidates.sort { a, b in
+        if a.priority != b.priority { return a.priority < b.priority }
+        return a.ip < b.ip
+    }
+    var seen = Set<String>()
+    var unique: [String] = []
+    for item in candidates {
+        if !seen.contains(item.ip) {
+            seen.insert(item.ip)
+            unique.append(item.ip)
+        }
+    }
+    return unique
 }
 
 /// Normalize a typed pairing code the way the pairing registry does.
@@ -101,6 +135,17 @@ func phoneRelayNormalizePairCode(_ raw: String?) -> String? {
 
 private func phoneRelayGenerateCode(length: Int = 4) -> String {
     String((0..<length).map { _ in pairingCharset.randomElement()! })
+}
+
+private let phoneRelayPairCodeDefaultsKey = "ai.opengym.video-sync.pair-code"
+
+private func phoneRelayLoadSavedPairCode() -> String? {
+    guard let saved = UserDefaults.standard.string(forKey: phoneRelayPairCodeDefaultsKey) else { return nil }
+    return phoneRelayNormalizePairCode(saved)
+}
+
+private func phoneRelaySavePairCode(_ code: String) {
+    UserDefaults.standard.set(code, forKey: phoneRelayPairCodeDefaultsKey)
 }
 
 final class PhoneRelayServer {
@@ -123,7 +168,7 @@ final class PhoneRelayServer {
     private var lastExtensionSeenAt = 0
     private var lastPhoneSeenAt = 0
 
-    private(set) var pairCode: String = phoneRelayGenerateCode()
+    private(set) var pairCode: String = phoneRelayLoadSavedPairCode() ?? phoneRelayGenerateCode()
 
     private lazy var state: RelayJSON = [
         "epoch": epoch,
@@ -172,38 +217,40 @@ final class PhoneRelayServer {
         queue.sync {
             pairCode = normalized
             lastPhoneSeenAt = relayNowMilliseconds()
+            phoneRelaySavePairCode(normalized)
         }
         return normalized
     }
 
     // MARK: - Listener lifecycle
 
-    private func startLocked(preferredPort: UInt16, completion: @escaping (StartResult) -> Void) {
+    private func startLocked(preferredPort: UInt16, retryCount: Int = 0, completion: @escaping (StartResult) -> Void) {
         stopLocked()
+        let targetPort = preferredPort != 0 ? preferredPort : phoneRelayDefaultPort
+        guard let port = NWEndpoint.Port(rawValue: targetPort) else {
+            DispatchQueue.main.async { completion(.failure("Invalid relay port.")) }
+            return
+        }
+
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
 
-        let chosen: NWListener?
-        if preferredPort != 0, let port = NWEndpoint.Port(rawValue: preferredPort) {
-            chosen = try? NWListener(using: parameters, on: port)
-        } else {
-            chosen = try? NWListener(using: parameters)
-        }
-        guard let listener = chosen else {
-            // Port busy (or listener refused). Fall back to a system-assigned port once.
-            if preferredPort != 0, let fallback = try? NWListener(using: parameters) {
-                configureAndStart(listener: fallback, completion: completion)
-                return
-            }
-            DispatchQueue.main.async {
-                completion(.failure("The phone's video-sync server could not start."))
+        guard let listener = try? NWListener(using: parameters, on: port) else {
+            if retryCount < 4 {
+                queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self?.startLocked(preferredPort: targetPort, retryCount: retryCount + 1, completion: completion)
+                }
+            } else {
+                DispatchQueue.main.async {
+                    completion(.failure("The phone's video-sync server could not bind port \(targetPort)."))
+                }
             }
             return
         }
-        configureAndStart(listener: listener, completion: completion)
+        configureAndStart(listener: listener, targetPort: targetPort, retryCount: retryCount, completion: completion)
     }
 
-    private func configureAndStart(listener: NWListener, completion: @escaping (StartResult) -> Void) {
+    private func configureAndStart(listener: NWListener, targetPort: UInt16, retryCount: Int, completion: @escaping (StartResult) -> Void) {
         self.listener = listener
         listener.service = NWListener.Service(
             name: phoneRelayBonjourName,
@@ -224,18 +271,19 @@ final class PhoneRelayServer {
                 // Do NOT cancel the listener here.
                 break
             case .failed(let error):
-                // If the preferred port (8787) failed to bind, fall back to a dynamic port once.
+                // Never fall back to dynamic random port 0, because the Chrome extension sweeps
+                // fixed port 8787 across the LAN and cannot discover random ephemeral ports.
                 listener.stateUpdateHandler = nil
                 listener.service = nil
                 listener.cancel()
                 self.listener = nil
-                let parameters = NWParameters.tcp
-                parameters.allowLocalEndpointReuse = true
-                if let fallback = try? NWListener(using: parameters) {
-                    self.configureAndStart(listener: fallback, completion: completion)
+                if retryCount < 4 {
+                    self.queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                        self?.startLocked(preferredPort: targetPort, retryCount: retryCount + 1, completion: completion)
+                    }
                 } else {
                     DispatchQueue.main.async {
-                        completion(.failure(error.localizedDescription))
+                        completion(.failure("Port \(targetPort) failed: \(error.localizedDescription)"))
                     }
                 }
             default:
@@ -416,6 +464,7 @@ final class PhoneRelayServer {
                 return
             }
             pairCode = normalized
+            phoneRelaySavePairCode(normalized)
             lastPhoneSeenAt = relayNowMilliseconds()
             let payload: RelayJSON = [
                 "ok": true,
@@ -547,7 +596,7 @@ final class PhoneRelayServer {
             nextPlay = NSNull()
         }
 
-        let nextState: RelayJSON = [
+        var nextState: RelayJSON = [
             "epoch": epoch,
             "seq": previousSeq + 1,
             "action": action ?? NSNull(),
@@ -561,6 +610,11 @@ final class PhoneRelayServer {
             "online": !streamClients.isEmpty,
             "at": relayNowMilliseconds()
         ]
+        if let phoneMeta = body["phoneMeta"] as? RelayJSON {
+            nextState["phoneMeta"] = phoneMeta
+        } else if action != "end", let existing = state["phoneMeta"] {
+            nextState["phoneMeta"] = existing
+        }
         state = nextState
         broadcast(state)
         return state

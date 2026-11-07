@@ -1,50 +1,101 @@
 const $ = id => document.getElementById(id)
-const LABEL = {
-  unconfigured: 'Waiting for your phone',
-  connecting: 'Looking for your phone…',
-  connected: 'Listening for the workout',
-  'relay-offline': 'Looking for your phone…',
-  'host-offline': 'Looking for your phone…',
-  'permission-denied': 'Chrome permission needed',
-  'signed-out': 'Not signed in',
-  'server-error': 'Connection problem',
-  error: 'Connection error'
+
+const STATUS_TEXTS = {
+  unconfigured: 'Waiting',
+  connecting: 'Searching…',
+  connected: 'Connected',
+  'relay-offline': 'Searching…',
+  'host-offline': 'Searching…',
+  'permission-denied': 'Permission needed',
+  'signed-out': 'Sign in needed',
+  'server-error': 'Offline',
+  error: 'Offline'
 }
-// States that mean "we are simply still looking for the phone": a calm amber look, never a red "!".
+
 const SEARCHING = new Set(['unconfigured', 'connecting', 'relay-offline', 'host-offline'])
-const BAD = new Set(['permission-denied', 'signed-out'])
-let shownStatus = null
-let countdownTimer = null
+const BAD = new Set(['permission-denied', 'signed-out', 'server-error', 'error'])
 
-function render (status) {
-  shownStatus = status || null
-  const state = status?.state || 'unconfigured'
-  const el = $('status')
-  el.textContent = LABEL[state] || state
-  el.className = 'status' + (state === 'connected' ? ' ok' : SEARCHING.has(state) ? ' warn' : BAD.has(state) ? ' bad' : ' idle')
-  const detail = status?.detail || ''
-  $('detail').textContent = detail
-  renderCountdown()
+let currentStatus = null
+let currentPhoneMeta = null
+
+function formatTime (seconds) {
+  const s = Math.max(0, Math.round(Number(seconds) || 0))
+  const m = Math.floor(s / 60)
+  return `${m}:${String(s % 60).padStart(2, '0')}`
 }
 
-function renderCountdown () {
-  const state = shownStatus?.state || 'unconfigured'
-  const retryAt = Number(shownStatus?.retryAt) || 0
-  const seconds = retryAt ? Math.max(0, Math.ceil((retryAt - Date.now()) / 1000)) : 0
-  if (retryAt && seconds > 0) {
-    $('next').textContent = `Retrying in ${seconds}s.`
-  } else if (state === 'permission-denied') {
-    $('next').textContent = 'Click Reconnect and allow Chrome access to your local network.'
-  } else if (state === 'signed-out') {
-    $('next').textContent = 'Sign in to openGym in the same Chrome profile, then click Reconnect.'
-  } else if (state === 'connected') {
-    $('next').textContent = ''
-  } else if (SEARCHING.has(state) || state === 'server-error' || state === 'error') {
-    // Plain, human steps. No file names, ports, Node.js or terminal jargon.
-    $('next').textContent = 'Keep your phone and this computer on the same Wi-Fi (or the phone hotspot), '
-      + 'open openGym on your phone → Settings → Computer connection, enter the code above, then click Reconnect.'
+function renderStatus (status) {
+  currentStatus = status || null
+  const state = status?.state || 'unconfigured'
+  const pill = $('status-pill')
+  const textEl = $('status-text')
+  
+  textEl.textContent = STATUS_TEXTS[state] || state
+  pill.className = 'status-pill ' + (state === 'connected' ? 'status-ok' : SEARCHING.has(state) ? 'status-warn' : 'status-bad')
+  updateLayout()
+}
+
+function renderPhoneMeta (meta) {
+  currentPhoneMeta = meta || null
+  updateLayout()
+}
+
+function updateLayout () {
+  const isConnected = currentStatus?.state === 'connected'
+  const hasWorkout = Boolean(currentPhoneMeta && (currentPhoneMeta.exerciseName || currentPhoneMeta.workoutName))
+
+  const phoneCard = $('phone-card')
+  const idleCard = $('idle-card')
+  const pairCard = $('pair-card')
+
+  if (isConnected && hasWorkout) {
+    phoneCard.classList.remove('hidden')
+    idleCard.classList.add('hidden')
+    pairCard.classList.add('hidden')
+
+    // Fill phone card content
+    $('phone-workout-name').textContent = currentPhoneMeta.workoutName || 'Workout'
+    
+    const cur = currentPhoneMeta.curIndex || 1
+    const total = currentPhoneMeta.totalCount || 1
+    $('phone-step-pill').textContent = `${cur} / ${total}`
+    
+    $('phone-exercise-name').textContent = currentPhoneMeta.exerciseName || 'Exercise'
+
+    const timerPill = $('phone-timer-pill')
+    const timerIcon = $('phone-timer-icon')
+    const timerText = $('phone-timer-text')
+    const stateBadge = $('phone-state-badge')
+
+    if (currentPhoneMeta.isResting) {
+      timerPill.className = 'timer-pill rest'
+      timerIcon.textContent = '☕'
+      timerText.textContent = currentPhoneMeta.workLeft != null ? formatTime(currentPhoneMeta.workLeft) : 'Rest'
+      stateBadge.textContent = 'Rest'
+    } else if (currentPhoneMeta.isWorkPaused) {
+      timerPill.className = 'timer-pill paused'
+      timerIcon.textContent = '⏸'
+      timerText.textContent = currentPhoneMeta.workLeft != null ? formatTime(currentPhoneMeta.workLeft) : 'Paused'
+      stateBadge.textContent = 'Paused'
+    } else if (currentPhoneMeta.isWorkActive) {
+      timerPill.className = 'timer-pill work'
+      timerIcon.textContent = '▶'
+      timerText.textContent = currentPhoneMeta.workLeft != null ? formatTime(currentPhoneMeta.workLeft) : 'Active'
+      stateBadge.textContent = 'Running'
+    } else {
+      timerPill.className = 'timer-pill work'
+      timerIcon.textContent = '●'
+      timerText.textContent = 'Ready'
+      stateBadge.textContent = 'Active'
+    }
+  } else if (isConnected) {
+    phoneCard.classList.add('hidden')
+    idleCard.classList.remove('hidden')
+    pairCard.classList.remove('hidden')
   } else {
-    $('next').textContent = ''
+    phoneCard.classList.add('hidden')
+    idleCard.classList.add('hidden')
+    pairCard.classList.remove('hidden')
   }
 }
 
@@ -53,17 +104,16 @@ function paintPairCode (code) {
 }
 
 async function load () {
-  const { serverUrl, status, pairCode } = await chrome.storage.local.get(['serverUrl', 'status', 'pairCode'])
+  const { serverUrl, status, pairCode, phoneMeta } = await chrome.storage.local.get(['serverUrl', 'status', 'pairCode', 'phoneMeta'])
   $('server').value = serverUrl || ''
-  // Show the locally stored code immediately; it is generated by the background on first run.
-  // Never block the display on a server being reachable.
   paintPairCode(pairCode)
-  render(status)
-  // Ask the background to make sure a code exists (it may be the very first open).
+  renderStatus(status)
+  renderPhoneMeta(phoneMeta)
+
   try {
     const res = await chrome.runtime.sendMessage({ type: 'og:ensurepaircode' }).catch(() => null)
     if (res?.code) paintPairCode(res.code)
-  } catch { /* the background will generate it on startup regardless */ }
+  } catch { /* background handles startup */ }
 }
 
 function parseServer () {
@@ -80,12 +130,11 @@ function parseServer () {
 async function requestHost (server) {
   if (!server) return false
   const origin = new URL(server).origin
-  // This runs during a click: Chrome only allows its host-permission prompt from a user gesture.
   return chrome.permissions.request({ origins: [origin + '/*'] }).catch(() => false)
 }
 
 function reconnect () {
-  render({ state: 'connecting', detail: 'Looking for your phone on the same Wi-Fi.' })
+  renderStatus({ state: 'connecting' })
   chrome.runtime.sendMessage({ type: 'og:reconnect' }).catch(() => {})
 }
 
@@ -100,16 +149,12 @@ async function refreshCode () {
 async function save () {
   const server = parseServer()
   if (!server) {
-    // Clearing the address is fine: it lets automatic discovery find the phone again.
     await chrome.storage.local.set({ serverUrl: '' })
     reconnect()
     return
   }
   if (!(await requestHost(server))) {
-    render({
-      state: 'permission-denied',
-      detail: 'Chrome did not grant access to ' + new URL(server).origin + '. Click Save or Reconnect to ask again.'
-    })
+    renderStatus({ state: 'permission-denied' })
     return
   }
   await chrome.storage.local.set({ serverUrl: server })
@@ -122,12 +167,10 @@ $('retry').addEventListener('click', reconnect)
 $('refresh-code').addEventListener('click', refreshCode)
 
 chrome.storage.onChanged.addListener(changes => {
-  if (changes.status) render(changes.status.newValue)
+  if (changes.status) renderStatus(changes.status.newValue)
+  if (changes.phoneMeta) renderPhoneMeta(changes.phoneMeta.newValue)
   if (changes.serverUrl) $('server').value = changes.serverUrl.newValue || ''
   if (changes.pairCode) paintPairCode(changes.pairCode.newValue)
 })
-
-countdownTimer = setInterval(renderCountdown, 250)
-window.addEventListener('pagehide', () => clearInterval(countdownTimer), { once: true })
 
 load()

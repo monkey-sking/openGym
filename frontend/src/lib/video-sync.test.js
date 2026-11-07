@@ -65,8 +65,18 @@ function store (active) {
 }
 
 const ui = () => {
-  const state = { timer: null, pauseWork: vi.fn(), resumeWork: vi.fn(), setVideoSync: vi.fn(p => Object.assign(state.videoSync, p)), videoSync: { online: false, offset: 0 } }
-  return { getState: () => state, state }
+  const subs = new Set()
+  const state = { timer: null, work: null, pauseWork: vi.fn(), resumeWork: vi.fn(), setVideoSync: vi.fn(p => Object.assign(state.videoSync, p)), videoSync: { online: false, offset: 0 } }
+  return {
+    getState: () => state,
+    setState: patch => {
+      const prev = { ...state }
+      Object.assign(state, patch)
+      subs.forEach(fn => fn(state, prev))
+    },
+    subscribe: fn => { subs.add(fn); return () => subs.delete(fn) },
+    state
+  }
 }
 
 const blank = () => ({ seq: 0, action: null, source: null, sessionId: null, videoUrl: null, pos: null, offset: 0, force: false, online: true, at: 1 })
@@ -138,6 +148,66 @@ describe('what the app tells the computer', () => {
     expect(commands()[0].play).toBeUndefined()
     expect(commands()[1]).toMatchObject({ action: 'seek', source: 'app', sessionId: SESSION, videoUrl: BV, force: false })
     expect(useUI.state.setVideoSync).toHaveBeenCalledWith({ online: true })
+  })
+
+  it('holds a timed or chaptered exercise paused when active work has not started', async () => {
+    await start()
+    // A fresh workout whose first exercise has vstart or timed mode
+    useStore.setState({
+      S: {
+        ...useStore.getState().S,
+        active: session({
+          id: 's-timed',
+          entries: [{ id: 'v1', target: { vstart: 0, mode: 'time', sec: 30 } }]
+        })
+      }
+    })
+    expect(commands().at(-1)).toMatchObject({ action: 'start', sessionId: 's-timed', play: false })
+  })
+
+  it('syncs resume and pause with phone work countdown timer', async () => {
+    await start()
+    useStore.setState({
+      S: {
+        ...useStore.getState().S,
+        active: session({
+          id: 's-timed-sync',
+          entries: [{ id: 'v1', target: { vstart: 10, mode: 'time', sec: 30 } }]
+        })
+      }
+    })
+    // Start work countdown on phone
+    useUI.setState({ work: { total: 30, left: 30, endsAt: Date.now() + 30000, paused: false } })
+    expect(commands().at(-1)).toMatchObject({ action: 'resume', sessionId: 's-timed-sync', force: true })
+
+    // Pause work countdown on phone
+    useUI.setState({ work: { total: 30, left: 25, endsAt: Date.now() + 25000, paused: true } })
+    expect(commands().at(-1)).toMatchObject({ action: 'pause', sessionId: 's-timed-sync' })
+
+    // Resume work countdown on phone
+    useUI.setState({ work: { total: 30, left: 25, endsAt: Date.now() + 25000, paused: false } })
+    expect(commands().at(-1)).toMatchObject({ action: 'resume', sessionId: 's-timed-sync', force: true })
+
+    // End work countdown on phone
+    useUI.setState({ work: null })
+    expect(commands().at(-1)).toMatchObject({ action: 'pause', sessionId: 's-timed-sync' })
+  })
+
+  it('does not send periodic drift checks when chaptered exercise is not actively ticking', async () => {
+    await start()
+    useStore.setState({
+      S: {
+        ...useStore.getState().S,
+        active: session({
+          id: 's-idle-chapter',
+          entries: [{ id: 'v-ch', target: { vstart: 0, mode: 'time', sec: 30 } }]
+        })
+      }
+    })
+    const before = commands().filter(c => c.sessionId === 's-idle-chapter' && c.action === 'seek' && !c.force).length
+    await poll(3000)
+    const after = commands().filter(c => c.sessionId === 's-idle-chapter' && c.action === 'seek' && !c.force).length
+    expect(after).toBe(before)
   })
 
   it('starts playback for a fresh workout, not for a reload or a paused session', async () => {
