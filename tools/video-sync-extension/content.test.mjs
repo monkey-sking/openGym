@@ -139,3 +139,21 @@ test('an explicit resume clears the hold and plays, and does not re-pause later'
   await tick()
   assert.equal(command.video.paused, false, 'the cleared hold cannot leak into a normal resume')
 })
+
+test('reports video-unavailable when Bilibili shows a private or missing video page', async () => {
+  const command = await loadVideo(0)
+  command.video.remove()
+  document.body.textContent = '当前稿件up主设置为仅自见 3秒后为您自动跳转至首页'
+
+  const statusRes = await command({ action: 'status' })
+  assert.equal(statusRes.ok, true)
+  assert.equal(statusRes.hasVideo, false)
+  assert.equal(statusRes.unavailable, true)
+  assert.equal(statusRes.reason, 'video-unavailable')
+
+  const resumeRes = await command({ action: 'resume' })
+  assert.equal(resumeRes.ok, false)
+  assert.equal(resumeRes.unavailable, true)
+  assert.equal(resumeRes.reason, 'video-unavailable')
+})
+

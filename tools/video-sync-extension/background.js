@@ -123,6 +123,15 @@ let readyTimeout = 10000
 // must not jump over it: they wait here until the start succeeds, so a seek never becomes the
 // only command a tab ever receives.
 let pendingCommands = []
+// Track tabs auto-opened per (sessionId, videoKey) and videos confirmed unavailable so a broken
+// or redirected video (e.g. Bilibili private video redirecting to homepage) never triggers an
+// infinite tab-opening loop.
+let openedSessionVideos = new Map()
+let unavailableSessionVideos = new Set()
+let abortWaitForVideo = null
+let abortingSessionEnd = false
+let incomingStates = []
+let drainingStates = false
 
 const storageGet = keys => chrome.storage.local.get(keys)
 const storageSet = obj => chrome.storage.local.set(obj)
@@ -582,12 +591,49 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 // A newly opened tab has no video until the player has mounted. Poll the page half (which never
 // touches playback for this command) so "opened" is reported only once there is something to play.
-async function waitForVideo (tabId, timeout = readyTimeout) {
+// Aborts immediately if the page reports the video is private/unavailable, if the tab redirects
+// away from the expected video (e.g. Bilibili 3s redirect to homepage), if the tab is closed, or
+// if the workout session ends.
+async function waitForVideo (tabId, timeout = readyTimeout, expectedKey = null, expectedSessionId = current.sessionId) {
   const start = Date.now()
   while (Date.now() - start < timeout) {
+    if (abortingSessionEnd || (expectedSessionId && current.sessionId && current.sessionId !== expectedSessionId)) {
+      return { ok: false, aborted: true, reason: 'session-ended' }
+    }
     const res = await sendCommand(tabId, { action: 'status' })
     if (res?.ok && res.hasVideo) return res
-    await sleep(250)
+    if (res?.unavailable || res?.reason === 'video-unavailable') {
+      return { ok: false, unavailable: true, reason: 'video-unavailable' }
+    }
+    if (expectedKey) {
+      try {
+        const allTabs = await chrome.tabs.query({})
+        if (Array.isArray(allTabs) && allTabs.length > 0) {
+          const liveTab = allTabs.find(t => t.id === tabId)
+          if (!liveTab) {
+            return { ok: false, unavailable: true, reason: 'tab-closed' }
+          }
+          if (liveTab.url && /^https?:\/\//i.test(liveTab.url)) {
+            const liveKey = videoKey(liveTab.url)
+            if (liveKey !== expectedKey) {
+              return { ok: false, unavailable: true, reason: 'video-unavailable' }
+            }
+          }
+        }
+      } catch { /* ignore tab query errors */ }
+    }
+    await new Promise(resolve => {
+      const timer = setTimeout(() => {
+        if (abortWaitForVideo === wake) abortWaitForVideo = null
+        resolve()
+      }, 250)
+      const wake = () => {
+        clearTimeout(timer)
+        if (abortWaitForVideo === wake) abortWaitForVideo = null
+        resolve()
+      }
+      abortWaitForVideo = wake
+    })
   }
   return null
 }
@@ -617,7 +663,22 @@ async function command (cmd) {
   let tabs = await pickTab(current.videoUrl)
   let opened = false
   const target = current.videoUrl
+  const targetKey = videoKey(target)
+  const sessionVideoKey = (targetKey || target)
+    ? `${current.sessionId || ''}:${targetKey || target}`
+    : null
+  if (sessionVideoKey && unavailableSessionVideos.has(sessionVideoKey)) {
+    await status('connected', 'video sync: video is unavailable or private')
+    return { ok: false, reason: 'video-unavailable' }
+  }
   if (!tabs.length && action === 'start' && !preservePlayback && target && videoHost(target)) {
+    // Never auto-open a second tab for the same (sessionId, video) if the first tab was closed
+    // or redirected away (e.g. Bilibili private video redirecting to bilibili.com homepage).
+    if (sessionVideoKey && openedSessionVideos.has(sessionVideoKey)) {
+      unavailableSessionVideos.add(sessionVideoKey)
+      await status('connected', 'video sync: video is unavailable or was closed')
+      return { ok: false, reason: 'video-unavailable' }
+    }
     // The phone named a video that is not open here: open exactly that URL, then wait for its
     // player before reporting success. Nothing is sent to any other tab.
     let tab
@@ -629,6 +690,7 @@ async function command (cmd) {
       await status('connected', 'video sync: could not open the video tab')
       return { ok: false, reason: 'open-failed' }
     }
+    if (sessionVideoKey) openedSessionVideos.set(sessionVideoKey, tab.id)
     if (tab?.windowId) {
       try { await chrome.windows.update(tab.windowId, { focused: true }) } catch {}
     }
@@ -636,8 +698,16 @@ async function command (cmd) {
     // before the player mounts, so the content script pauses the first playable video; the mark
     // survives a worker restart until an explicit resume (or a play:true start) clears it.
     if (playIntent === false) await setHold(tab.id, true)
-    const ready = await waitForVideo(tab.id)
-    if (!ready) {
+    const ready = await waitForVideo(tab.id, readyTimeout, targetKey, current.sessionId)
+    if (!ready || ready.ok === false) {
+      if (ready?.aborted) {
+        return { ok: false, reason: 'aborted', tabId: tab.id, opened: true }
+      }
+      if (ready?.unavailable) {
+        if (sessionVideoKey) unavailableSessionVideos.add(sessionVideoKey)
+        await status('connected', 'video sync: video is unavailable or private')
+        return { ok: false, reason: 'video-unavailable', tabId: tab.id, opened: true }
+      }
       await status('connected', 'video sync: the video is still loading in Chrome')
       return { ok: false, reason: 'not-ready', tabId: tab.id, opened: true }
     }
@@ -665,6 +735,11 @@ async function command (cmd) {
   if (action === 'resume' || (action === 'start' && playIntent === true)) await setHold(tab.id, false)
   const res = await sendCommand(tab.id, cmd)
   if (!res?.ok) {
+    if (res?.unavailable || res?.reason === 'video-unavailable') {
+      if (sessionVideoKey) unavailableSessionVideos.add(sessionVideoKey)
+      await status('connected', 'video sync: video is unavailable or private')
+      return { ok: false, reason: 'video-unavailable' }
+    }
     const why = res?.reason === 'no-video' ? 'the video is not ready'
       : res?.reason === 'unreachable' ? 'the page cannot be reached'
       : 'the video did not answer'
@@ -710,7 +785,7 @@ async function command (cmd) {
   return { ok: true, tabId: tab.id, opened }
 }
 
-async function post (action, source) {
+async function post (action, source, extra = {}) {
   const { [SERVER_KEY]: raw } = await storageGet(SERVER_KEY)
   const server = normalizeServer(raw)
   if (!server) return
@@ -732,7 +807,8 @@ async function post (action, source) {
         action,
         source,
         sessionId: current.sessionId,
-        ...(current.videoUrl ? { videoUrl: current.videoUrl } : {})
+        ...(current.videoUrl ? { videoUrl: current.videoUrl } : {}),
+        ...extra
       })
     })
     if (!res.ok) {
@@ -773,6 +849,17 @@ function commandFor (next) {
   return null
 }
 
+function notifyVideoUnavailable () {
+  if (!current.sessionId) return
+  post('pause', 'video', {
+    phoneMeta: {
+      ...(current.phoneMeta && typeof current.phoneMeta === 'object' ? current.phoneMeta : {}),
+      videoError: 'video-unavailable',
+      failedVideoUrl: current.videoUrl || null
+    }
+  }).catch(() => {})
+}
+
 async function drainPending () {
   while (pendingCommands.length) {
     const item = pendingCommands[0]
@@ -781,7 +868,27 @@ async function drainPending () {
     if (!cmd) { markApplied(item.seq); pendingCommands.shift(); continue }
     const res = await command(cmd)
     if (!res?.ok) {
-      if (cmd?.action === 'start') return false
+      if (res?.reason === 'video-unavailable' || res?.reason === 'aborted') {
+        markApplied(item.seq)
+        pendingCommands = []
+        if (res?.reason === 'video-unavailable') notifyVideoUnavailable()
+        return false
+      }
+      if (cmd?.action === 'start') {
+        item._retries = (item._retries || 0) + 1
+        if (item._retries >= 2) {
+          const tk = videoKey(item.videoUrl || current.videoUrl)
+          const key = (tk || item.videoUrl || current.videoUrl)
+            ? `${item.sessionId || current.sessionId || ''}:${tk || item.videoUrl || current.videoUrl}`
+            : null
+          if (key) unavailableSessionVideos.add(key)
+          markApplied(item.seq)
+          pendingCommands = []
+          notifyVideoUnavailable()
+          return false
+        }
+        return false
+      }
       // The start that held this queue is done; a later command that cannot run now must not
       // trap every newer command behind it.
       pendingCommands.shift()
@@ -800,7 +907,10 @@ function clearBoundTab () {
 
 async function endSession (next, before) {
   // An end is final: nothing queued behind it belongs to this workout any more.
+  abortingSessionEnd = false
   pendingCommands = []
+  openedSessionVideos.clear()
+  unavailableSessionVideos.clear()
   const tabId = Number.isInteger(before.boundTabId) ? before.boundTabId : null
   if (tabId != null) {
     await setHold(tabId, false)
@@ -823,6 +933,10 @@ async function onState (next) {
   dispatch(next)
   const nextSessionId = typeof next.sessionId === 'string' && next.sessionId ? next.sessionId : null
   const sessionChanged = nextSessionId !== connectedSessionId
+  if (sessionChanged && nextSessionId && connectedSessionId && nextSessionId !== connectedSessionId) {
+    openedSessionVideos.clear()
+    unavailableSessionVideos.clear()
+  }
   connectedSessionId = nextSessionId
   if (sessionChanged && currentStatus.state === 'connected') {
     await status('connected', connectionDetail(), { attempt: 0 })
@@ -854,10 +968,46 @@ async function onState (next) {
   const res = await command(cmd)
   if (res.ok) {
     markApplied(next.seq)
+  } else if (res.reason === 'video-unavailable' || res.reason === 'aborted') {
+    pendingCommands = []
+    markApplied(next.seq)
+    if (res.reason === 'video-unavailable') notifyVideoUnavailable()
   } else if (cmd?.action === 'start' && res.reason === 'not-ready') {
     // The tab is still loading. Keep this start at the front and let the next snapshot retry it;
     // a seek or resume behind it must not be applied first.
-    pendingCommands.push(next)
+    pendingCommands.push({ ...next, _retries: 1 })
+  }
+}
+
+function enqueueState (state) {
+  if (!state || typeof state !== 'object') return
+  if (state.action === 'end') {
+    abortingSessionEnd = true
+    incomingStates = incomingStates.filter(s => s.action === 'end')
+    if (typeof abortWaitForVideo === 'function') abortWaitForVideo()
+  } else if (state.action === 'seek' && incomingStates.length > 0) {
+    const prev = incomingStates[incomingStates.length - 1]
+    if (prev.action === 'seek' && prev.sessionId === state.sessionId && prev.videoUrl === state.videoUrl) {
+      incomingStates[incomingStates.length - 1] = {
+        ...state,
+        force: !!(prev.force || state.force)
+      }
+      return
+    }
+  }
+  incomingStates.push(state)
+  if (!drainingStates) {
+    drainingStates = true
+    stateChain = stateChain.then(async () => {
+      try {
+        while (incomingStates.length > 0) {
+          const next = incomingStates.shift()
+          await onState(next)
+        }
+      } finally {
+        drainingStates = false
+      }
+    }).catch(() => { drainingStates = false })
   }
 }
 
@@ -873,10 +1023,10 @@ function consume (text) {
       .join('\n')
     if (!data) continue
     // One command at a time, in stream order: a start that opens a tab must finish before the
-    // seek behind it is applied.
+    // seek behind it is applied. Redundant queued seeks coalesce and an `end` cancels in-flight waits.
     try {
       const state = JSON.parse(data)
-      stateChain = stateChain.then(() => onState(state)).catch(() => {})
+      enqueueState(state)
     } catch { /* a partial frame is dropped */ }
   }
   return text
@@ -1031,6 +1181,13 @@ export const __test = {
     heldTabs = null
     heldLoading = null
     pendingCommands = []
+    openedSessionVideos.clear()
+    unavailableSessionVideos.clear()
+    if (typeof abortWaitForVideo === 'function') abortWaitForVideo()
+    abortWaitForVideo = null
+    abortingSessionEnd = false
+    incomingStates = []
+    drainingStates = false
     stateChain = Promise.resolve()
   }
 }

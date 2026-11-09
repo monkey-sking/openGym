@@ -92,7 +92,7 @@ async function apiJson(fetcher, url, signal) {
     throw new VideoLinkError('network', offline())
   }
   if (data.code !== 0) {
-    if (data.code === -404) throw new VideoLinkError('missing', missing())
+    if (data.code === -404 || data.code === 62002 || data.code === 62012) throw new VideoLinkError('missing', missing())
     if (data.code === -403 || data.code === -412 || data.code === -352) throw new VideoLinkError('refused', refused())
     throw new VideoLinkError('api', t('Bilibili said: {0}', String(data.message || data.code)))
   }

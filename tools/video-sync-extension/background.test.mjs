@@ -639,3 +639,93 @@ test('IPv6 loopback is a local relay and does not read a cookie or require Autho
   await connected
   assert.equal(bg.__test.connection().connecting, false)
 })
+
+test('a private Bilibili video that redirects to the homepage never opens a second tab on subsequent seeks', async () => {
+  let polls = 0
+  data.handlers.set(100, message => {
+    if (message.action === 'status') {
+      polls += 1
+      if (polls === 1) {
+        // Simulate Bilibili redirecting the private video tab to the homepage after error notice
+        const tab = data.tabs.find(t => t.id === 100)
+        if (tab) tab.url = 'https://www.bilibili.com/'
+      }
+      return { ok: true, hasVideo: false }
+    }
+    return { ok: false, reason: 'no-video' }
+  })
+  bg.__test.setReadyTimeout(2000)
+
+  await bg.onState({
+    source: 'app',
+    sessionId: 'session-private',
+    seq: 1,
+    action: 'start',
+    videoUrl: EXACT,
+    play: true
+  })
+
+  assert.equal(data.created.length, 1, 'opens the tab only once')
+  assert.deepEqual(bg.__test.getPending(), [], 'does not keep a redirected/unavailable start in pendingCommands')
+  assert.equal(bg.__test.getAppliedSeq(), 1)
+
+  // Subsequent drift-check seeks from the phone must never open another tab
+  await bg.onState({
+    source: 'app',
+    sessionId: 'session-private',
+    seq: 2,
+    action: 'seek',
+    videoUrl: EXACT,
+    pos: 30,
+    force: false
+  })
+  await bg.onState({
+    source: 'app',
+    sessionId: 'session-private',
+    seq: 3,
+    action: 'start',
+    videoUrl: EXACT,
+    play: true
+  })
+
+  assert.equal(data.created.length, 1, 'still only 1 tab ever created for the broken video')
+  assert.equal(bg.__test.getAppliedSeq(), 3)
+})
+
+test('a page that reports video-unavailable immediately aborts start and notifies the relay', async () => {
+  data.local.serverUrl = 'http://127.0.0.1:8787'
+  const posted = []
+  data.fetch = async (url, init) => {
+    if (String(url).endsWith('/api/video-sync/command')) {
+      const body = JSON.parse(init.body)
+      posted.push(body)
+      return new Response(JSON.stringify({ seq: 2, ...body }), { status: 200 })
+    }
+    throw new Error('unexpected fetch: ' + url)
+  }
+  data.handlers.set(100, message => {
+    if (message.action === 'status') {
+      return { ok: true, hasVideo: false, unavailable: true, reason: 'video-unavailable' }
+    }
+    return { ok: false, reason: 'video-unavailable', unavailable: true }
+  })
+  bg.__test.setReadyTimeout(5000)
+
+  await bg.onState({
+    source: 'app',
+    sessionId: 'session-unavail',
+    seq: 1,
+    action: 'start',
+    videoUrl: EXACT,
+    play: true
+  })
+
+  assert.equal(data.created.length, 1)
+  assert.deepEqual(bg.__test.getPending(), [])
+  assert.equal(bg.__test.getAppliedSeq(), 1)
+  await waitFor(() => posted.length === 1)
+  assert.equal(posted[0].action, 'pause')
+  assert.equal(posted[0].source, 'video')
+  assert.equal(posted[0].phoneMeta?.videoError, 'video-unavailable')
+})
+

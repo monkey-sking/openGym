@@ -560,8 +560,8 @@ final class PhoneRelayServer {
         let action = relayString(body["action"])
         let source = relayString(body["source"]) ?? "unknown"
         let by = relayString(body["by"])
-        // A command the extension posts carries by:"video"; anything else is the phone.
-        if by == "video" {
+        // A command the extension posts carries source:"video" (or legacy by:"video"); anything else is the phone.
+        if source == "video" || by == "video" {
             lastExtensionSeenAt = relayNowMilliseconds()
         } else {
             lastPhoneSeenAt = relayNowMilliseconds()

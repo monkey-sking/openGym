@@ -365,6 +365,34 @@ describe('what a pause on the computer does', () => {
     await poll(1)
     expect(isPaused(useStore.getState().S.active)).toBe(true)
   })
+
+  it('pauses the workout, surfaces videoError, and stops drift seeks when the computer reports video-unavailable', async () => {
+    const toast = vi.fn()
+    useUI.state.toast = toast
+    await start()
+    state = {
+      ...blank(),
+      seq: 7,
+      action: 'pause',
+      source: 'video',
+      sessionId: SESSION,
+      videoUrl: BV,
+      phoneMeta: { videoError: 'video-unavailable', failedVideoUrl: BV },
+      online: true
+    }
+    await poll(1500)
+    expect(isPaused(useStore.getState().S.active)).toBe(true)
+    expect(useUI.state.videoSync.videoError).toBe('video-unavailable')
+    expect(useUI.state.videoSync.failedVideoUrl).toBe(BV)
+    expect(toast).toHaveBeenCalledTimes(1)
+
+    // Even if the athlete manually resumes the workout timer on the phone, the broken video URL
+    // is not spammed with resume or periodic drift seeks.
+    const countBefore = commands().length
+    useStore.getState().resumeWorkout('app')
+    await poll(6000)
+    expect(commands().length).toBe(countBefore)
+  })
 })
 
 describe('what counts as a session and a video', () => {

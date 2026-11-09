@@ -212,6 +212,7 @@ export async function startVideoSync ({ useStore, useUI, request = api, poll = V
   let stopped = false
   let sessionId = null
   let videoUrl = null
+  let failedVideoUrl = null
   let lastSeq = 0
   let lastEpoch = null
   let timer = null
@@ -352,6 +353,20 @@ export async function startVideoSync ({ useStore, useUI, request = api, poll = V
     if (st.source !== 'video') return
     const A = useStore.getState().S.active
     if (!A || A.id !== st.sessionId) return
+    if (st.phoneMeta?.videoError === 'video-unavailable') {
+      const failed = st.phoneMeta.failedVideoUrl || st.videoUrl || videoUrl
+      if (failed && failedVideoUrl !== failed) {
+        failedVideoUrl = failed
+        try {
+          const ui = useUI.getState()
+          ui.setVideoSync({ videoError: 'video-unavailable', failedVideoUrl: failed })
+          const msg = /bilibili\.com|b23\.tv/i.test(failed)
+            ? t('Bilibili doesn’t have that video. Check the link.')
+            : t('That link didn’t lead to a video.')
+          ui.toast?.(msg)
+        } catch { /* a test without the full UI store */ }
+      }
+    }
     applying = true
     try {
       if (st.action === 'pause') pauseHere('video')
@@ -364,6 +379,7 @@ export async function startVideoSync ({ useStore, useUI, request = api, poll = V
   const checkDrift = force => {
     const A = useStore.getState().S.active
     if (!sessionId || !videoUrl || !A || A.id !== sessionId || isPaused(A)) return
+    if (failedVideoUrl && videoUrl === failedVideoUrl) return
     const entry = A?.entries?.[A?.cur]
     if (!force && isTimedOrFollowAlong(entry)) {
       const wk = currentWork()
@@ -421,10 +437,12 @@ export async function startVideoSync ({ useStore, useUI, request = api, poll = V
       const ended = sessionId
       sessionId = next
       videoUrl = videoSyncUrl(A)
+      failedVideoUrl = null
       curIdx = A?.cur ?? null
       // A new session starts its own numbering: nothing said about the one before can apply.
       lastSeq = 0
       lastDriftCheckAt = 0
+      try { useUI.getState().setVideoSync({ videoError: null, failedVideoUrl: null }) } catch {}
       if (next) {
         endedSession = null
         // A fresh workout starts the named video. A reload of an already-running one does not
@@ -454,6 +472,8 @@ export async function startVideoSync ({ useStore, useUI, request = api, poll = V
       // The chapter moved to another video: point the extension at it, then snap the new tab to
       // the chapter's first frame. The start must land first, or the seek goes to the old tab.
       videoUrl = url
+      failedVideoUrl = null
+      try { useUI.getState().setVideoSync({ videoError: null, failedVideoUrl: null }) } catch {}
       const pos = posNow(A)
       const offset = useUI.getState()?.videoSync?.offset || 0
       send('start', 'app', next, url, { pos, offset })
@@ -465,13 +485,14 @@ export async function startVideoSync ({ useStore, useUI, request = api, poll = V
           else useUI.getState()?.toast?.(t('Video sync') + ' · ' + t('No video'))
         }
       } catch { /* ignore toast errors in headless tests */ }
-    } else if (chapterChanged) {
+    } else if (chapterChanged && !(failedVideoUrl && videoUrl === failedVideoUrl)) {
       // Same video, next chapter: send seek with force: true to snap to its beginning.
       const pos = posNow(A)
       const offset = useUI.getState()?.videoSync?.offset || 0
       send('seek', 'app', next, videoUrl, { pos, offset, force: true })
     }
     if (chapterChanged) curIdx = A.cur
+    if (failedVideoUrl && videoUrl === failedVideoUrl) return
     const wasPaused = isPaused(prev?.S?.active)
     const nowPaused = isPaused(A)
     const pos = posNow(A)
@@ -488,6 +509,7 @@ export async function startVideoSync ({ useStore, useUI, request = api, poll = V
 
   const onUIChange = (ui, prevUI) => {
     if (stopped || !sessionId || !videoUrl || applying) return
+    if (failedVideoUrl && videoUrl === failedVideoUrl) return
     const A = useStore.getState().S.active
     if (!A || A.id !== sessionId || isPaused(A)) return
     const entry = A.entries?.[A.cur]

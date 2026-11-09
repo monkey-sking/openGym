@@ -41,6 +41,15 @@ describe('videoSyncSheet opens sheet with status and controls', () => {
     expect(buttons).toContain('Reset')
   })
 
+  it('renders video url when entry is passed and copies on click', async () => {
+    const entry = { videoUrl: 'https://www.bilibili.com/video/BV1xx411c7mD' }
+    act(() => videoSyncSheet(entry))
+    const host = mountTopSheet()
+    expect(host.textContent).toContain('https://www.bilibili.com/video/BV1xx411c7mD')
+    const copyBtn = [...host.querySelectorAll('button')].find(b => b.textContent.includes('Copy link'))
+    expect(copyBtn).not.toBeUndefined()
+  })
+
   it('calls nudge when timeline buttons are clicked', () => {
     const nudge = vi.fn()
     useUI.setState({ videoSync: { offset: 2, nudge } })

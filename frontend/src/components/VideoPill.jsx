@@ -21,7 +21,7 @@ export default function VideoPill({ entry, isCurrent = false, onClick, className
   const handleClick = (e) => {
     e.stopPropagation()
     if (onClick) onClick()
-    else videoSyncSheet()
+    else videoSyncSheet(entry)
   }
 
   return (

@@ -38,7 +38,7 @@ import { parseImport, mergeImport } from './lib/import-csv.js'
 import { importHevyData, HevyApiError, HEVY_DEV_SETTINGS, mergeHevyRoutines, hevySummaryCounts } from './lib/import-hevy.js'
 import { buildPlanBundle, parsePlan, mergePlan, printPlan, planPrintHTML } from './lib/plan-share.js'
 import { readVideo, videoPlanBundle, clock, chapterLabel, VideoLinkError } from './lib/video-plan.js'
-import { readVideoSyncServer } from './lib/video-sync.js'
+import { readVideoSyncServer, entryVideoUrl } from './lib/video-sync.js'
 import { printOptions } from './lib/print-doc.js'
 import { printWorkout } from './lib/report-print.js'
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP, formulaOf, FORMULA_NAMES } from './lib/onerm.js'
@@ -949,10 +949,20 @@ function BarWeightSheet({ exId, cfg, close }) {
 }
 export const barWeightSheet = (exId, cfg) => ui().openSheet(close => <BarWeightSheet exId={exId} cfg={cfg} close={close} />)
 
-function VideoSyncSheetContent({ close }) {
+function VideoSyncSheetContent({ entry, close }) {
   const paired = Boolean(readVideoSyncServer())
   const offset = useUI(s => s.videoSync?.offset || 0)
   const nudge = useUI(s => s.videoSync?.nudge)
+
+  // Resolve current video url from entry or active workout's current entry
+  const resolvedEntry = entry || useStore.getState().S.active?.entries?.[useStore.getState().S.active?.cur]
+  const currentVideoUrl = resolvedEntry ? entryVideoUrl(resolvedEntry) : null
+
+  const handleCopyUrl = async () => {
+    if (!currentVideoUrl) return
+    const ok = await copyText(currentVideoUrl)
+    if (ok) toast(t('Copied'))
+  }
 
   return (
     <div>
@@ -962,6 +972,36 @@ function VideoSyncSheetContent({ close }) {
           ? t('This workout syncs automatically with the openGym Chrome extension on your computer.')
           : t('Pair once in Settings using the 4-character code shown in the openGym Chrome extension.')}
       </div>
+
+      {currentVideoUrl ? (
+        <div style={{ marginBottom: 16, padding: '10px 12px', background: 'var(--surface-2, #1c1c1e)', borderRadius: 10, border: '1px solid var(--border, #2c2c2e)' }}>
+          <div className="row between" style={{ marginBottom: 4 }}>
+            <span className="small muted" style={{ fontWeight: 600 }}>{t('Video link')}</span>
+            <button
+              type="button"
+              className="small acc"
+              style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+              onClick={handleCopyUrl}
+            >
+              <Icon name="copy" />
+              <span>{t('Copy link')}</span>
+            </button>
+          </div>
+          <div
+            className="small"
+            style={{
+              wordBreak: 'break-all',
+              lineHeight: 1.4,
+              color: 'var(--fg)',
+              userSelect: 'text',
+              WebkitUserSelect: 'text'
+            }}
+          >
+            {currentVideoUrl}
+          </div>
+        </div>
+      ) : null}
+
       <div style={{ marginBottom: 16 }}>
         <Button
           variant={paired ? 'secondary' : 'primary'}
@@ -995,7 +1035,7 @@ function VideoSyncSheetContent({ close }) {
     </div>
   )
 }
-export const videoSyncSheet = () => ui().openSheet(close => <VideoSyncSheetContent close={close} />)
+export const videoSyncSheet = (entry) => ui().openSheet(close => <VideoSyncSheetContent entry={entry} close={close} />)
 
 
 // The plates you own, as pairs per size, for the profile's unit (Settings → Equipment → Plates).

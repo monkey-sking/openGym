@@ -35,7 +35,29 @@
     return best
   }
 
-  const usable = v => v && v.duration > 0 && !v.ended
+  const usable = v => Boolean(v && v.duration > 0 && !v.ended)
+
+  const UNAVAILABLE_SELECTORS = [
+    '.error-container',
+    '.error-body',
+    '.error-panel',
+    '.van-framepreview-error',
+    'yt-player-error-message-renderer',
+    '#player-error-message-container'
+  ]
+  const UNAVAILABLE_TEXT_RE = /当前稿件up主设置为仅自见|啊叻？视频不见了|视频不见了|视频去哪了呢|稿件不见了|该视频已被删除|视频已失效|This video is private|This video is unavailable|Video unavailable/i
+
+  function unavailableReason () {
+    try {
+      for (const sel of UNAVAILABLE_SELECTORS) {
+        const nodes = document.querySelectorAll?.(sel)
+        if (nodes && nodes.length > 0) return 'video-unavailable'
+      }
+      const text = `${document.title || ''} ${document.body?.innerText || document.body?.textContent || ''}`
+      if (UNAVAILABLE_TEXT_RE.test(text)) return 'video-unavailable'
+    } catch { /* ignore DOM inspection errors */ }
+    return null
+  }
 
   // A held page is a video the background opened paused. Pause the first playable one, and every
   // autoplay attempt after it, without reporting those pauses as the athlete's own.
@@ -113,16 +135,22 @@
     // The background waits for this before it tells the phone the tab is ready. It never changes
     // playback, so a page still loading can be probed without side effects.
     if (action === 'status') {
+      const hasVideo = usable(v)
+      const unavailable = !hasVideo && !!unavailableReason()
       return {
         ok: true,
         action,
-        hasVideo: usable(v),
+        hasVideo,
+        ...(unavailable ? { unavailable: true, reason: 'video-unavailable' } : {}),
         paused: v ? v.paused : null,
         currentTime: v ? v.currentTime : null,
         duration: v ? v.duration : null
       }
     }
-    if (!usable(v)) return { ok: false, reason: 'no-video' }
+    if (!usable(v)) {
+      if (unavailableReason()) return { ok: false, reason: 'video-unavailable', unavailable: true }
+      return { ok: false, reason: 'no-video' }
+    }
     if (action === 'seek') {
       const pos = Number(cmd?.pos)
       if (!Number.isFinite(pos)) return { ok: false, reason: 'bad-pos' }
